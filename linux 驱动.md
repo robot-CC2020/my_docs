@@ -1,6 +1,8 @@
 # 基础知识
 
-## mmap
+## 内存
+
+### 页表
 
 + 一级页表工作原理：
 
@@ -22,6 +24,59 @@
 
 
 
+一级页表项里的内容，末尾两位决定了它是指向一块物理内存，还是指问二级页表，如下图：
+
+![image-20230630010633688](E:\学习资料\嵌入式Linux\学习笔记\linux 驱动.assets\image-20230630010633688.png)
+
+
+
+### mmap
+
+应用程序调用mmap，最终会调用到驱动程序的 mmap。
+
+![image-20230630014646124](E:\学习资料\嵌入式Linux\学习笔记\linux 驱动.assets\image-20230630014646124.png)
+
+
+
+
+
+### cache 与 buffer
+
+![image-20230630015450655](E:\学习资料\嵌入式Linux\学习笔记\linux 驱动.assets\image-20230630015450655.png)
+
+
+
++ 读取内存 addr 处的数据时：
+
+  1. 先看看 cache 中有没有 addr 的数据，如果有就直接从 cache 里返回数据：这被称为 cache 命中。
+
+  2. 如果 cache 中没有 addr 的数据，则从内存里把数据读入，注意：它不是仅仅读入一个数据，而是读入一行数据(cache line)。而 CPU 很可能会再次用到这个 addr 或 它附近的数据，这时就可以快速地从 cache 中获得数据。
+
++ 写通(write through)：
+
+  1. 数据要**同时写入 cache 和内存**，所以 cache 和内存中的数据保持一致，但是它的写效率很低。可以通过 buffer 优化，buffer 会自动把 cache 中的数据写入内存。
+
+  2. 有些 buffer 有“写合并”的功能，比如 CPU 连续写同一个word中的4个字节，写缓冲器会把这 4 个写操作合并成一个写操作。
+
++ 写回(write back)：
+
+  1. 新数据只是写入 cache，**不会立刻写入内存**，cache 和内存中的数据并不一致。
+  2. 新数据写入 cache 时，这一行 cache 被标为“脏”(dirty)；当cache 不够用时，才需要把脏的数据写入内存。
+
+根据是否使用 cache 和 buffer ，可以有4种组合。
+
+
+
+以下几种场景需要避免 cache 的使用：
+
++ 外设寄存器（register）
++ 显存（frame buffer）
++ DMA访问区域
+
+
+
+
+
 ## 中断
 
 ### 共享中断 与 非共享中断
@@ -31,6 +86,10 @@
 共享中断：多个外设共用同一个中断源。
 
 非共享中断：一个中断源只有一个外设触发。
+
+在linux内核中，每个中断源都有一个整数与之对应。
+
+
 
 
 
@@ -306,21 +365,19 @@ void device_destroy(struct class *cls, dev_t devt);
 
 ## 设备文件/文件夹
 
-ls /sys/class/ ：查看 class_create 创建的文件夹
+```shell
+ls /sys/class/ #查看 class_create 创建的文件夹
+ls /dev/ #查看 device_create 创建的文件(设备节点)，该文件可以使用 open close操作
+ls -al /dev/xxx #可以看出设备类型，主设备号、次设备号
 
 
+ls /sys/bus/platform/devices #查看加载的平台总线设备文件夹
+ls /sys/bus/platform/drivers #查看加载的平台总线驱动文件夹
+cat /proc/devices #查看所有系统已经使用设备号
+cat /proc/(pid)/maps #查看进程使用的虚拟地址
+```
 
-ls /dev/ ：查看 device_create 创建的文件(设备节点)，该文件可以使用 open close操作
 
-ls -al /dev/xxx ：可以看出设备类型，主设备号、次设备号
-
-
-
-ls /sys/bus/platform/devices ：查看加载的平台总线设备文件夹
-
-ls /sys/bus/platform/drivers ：查看加载的平台总线驱动文件夹
-
-cat /proc/devices : 查看所有系统已经使用设备号
 
 
 
@@ -432,7 +489,7 @@ void poll_wait(struct file * filp, wait_queue_head_t * wait_address, poll_table 
 
 ## 异步IO
 
-可以使用用户空间的glibc库实现，不依赖于内存。
+可以使用用户空间的glibc库实现，不依赖于内核。
 
 
 
