@@ -26,7 +26,7 @@
 
 一级页表项里的内容，末尾两位决定了它是指向一块物理内存，还是指问二级页表，如下图：
 
-![image-20230630010633688](E:\学习资料\嵌入式Linux\学习笔记\linux 驱动.assets\image-20230630010633688.png)
+![image-20230630010633688](E:\学习资料\嵌入式Linux\git备份\学习笔记\linux 驱动.assets\image-20230630010633688.png)
 
 
 
@@ -34,7 +34,7 @@
 
 应用程序调用mmap，最终会调用到驱动程序的 mmap。
 
-![image-20230630014646124](E:\学习资料\嵌入式Linux\学习笔记\linux 驱动.assets\image-20230630014646124.png)
+![image-20230630014646124](E:\学习资料\嵌入式Linux\git备份\学习笔记\linux 驱动.assets\image-20230630014646124.png)
 
 
 
@@ -42,7 +42,7 @@
 
 ### cache 与 buffer
 
-![image-20230630015450655](E:\学习资料\嵌入式Linux\学习笔记\linux 驱动.assets\image-20230630015450655.png)
+![image-20230630015450655](E:\学习资料\嵌入式Linux\git备份\学习笔记\linux 驱动.assets\image-20230630015450655.png)
 
 
 
@@ -81,7 +81,7 @@
 
 ### 共享中断 与 非共享中断
 
-![image-20230627223514668](E:\学习资料\嵌入式Linux\学习笔记\linux 驱动.assets\image-20230627223514668.png)
+![image-20230627223514668](E:\学习资料\嵌入式Linux\git备份\学习笔记\linux 驱动.assets\image-20230627223514668.png)
 
 共享中断：多个外设共用同一个中断源。
 
@@ -717,7 +717,7 @@ void poll_wait(struct file * filp, wait_queue_head_t * wait_address, poll_table 
 
 硬件中断与linux中断框架：
 
-![image-20230619012516471](E:\学习资料\嵌入式Linux\学习笔记\linux 驱动.assets\image-20230619012516471.png)
+![image-20230619012516471](E:\学习资料\嵌入式Linux\git备份\学习笔记\linux 驱动.assets\image-20230619012516471.png)
 
 
 
@@ -734,7 +734,7 @@ enum irqreturn {
 };
 typedef enum irqreturn irqreturn_t;
 
-// 中断处理函数原型
+// 中断处理函数原型（如果任务较长，则在此函数内创建 tasklet中断下半部分）
 typedef irqreturn_t (*irq_handler_t)(int, void *);
 
 // 设备向内核注册中断处理函数 API
@@ -767,26 +767,10 @@ int gpio_to_irq(unsigned int gpio);
 
 
 
-
-
 ## 中断内核源码
 
 ```c
-/**
- * struct irqaction - per interrupt action descriptor
- * @handler:	interrupt handler function
- * @name:	name of the device
- * @dev_id:	cookie to identify the device
- * @percpu_dev_id:	cookie to identify the device
- * @next:	pointer to the next irqaction for shared interrupts
- * @irq:	interrupt number
- * @flags:	flags (see IRQF_* above)
- * @thread_fn:	interrupt handler function for threaded interrupts
- * @thread:	thread pointer for threaded interrupts
- * @thread_flags:	flags related to @thread
- * @thread_mask:	bitmask for keeping track of @thread activity
- * @dir:	pointer to the proc/irq/NN/name entry
- */
+// 中断行为
 struct irqaction {
 	irq_handler_t		handler;	// 存放注册的 中断服务函数
 	void				*dev_id; 	// 存放注册的 指针参数，用于共享中断卸载时，找到需要卸载的设备
@@ -802,38 +786,7 @@ struct irqaction {
 	struct proc_dir_entry	*dir;
 } ____cacheline_internodealigned_in_smp;
 
-
-/**
- * struct irq_desc - interrupt descriptor
- * @irq_data:		per irq and chip data passed down to chip functions
- * @kstat_irqs:		irq stats per cpu
- * @handle_irq:		highlevel irq-events handler
- * @preflow_handler:	handler called before the flow handler (currently used by sparc)
- * @action:		the irq action chain
- * @status:		status information
- * @core_internal_state__do_not_mess_with_it: core internal status information
- * @depth:		disable-depth, for nested irq_disable() calls
- * @wake_depth:		enable depth, for multiple irq_set_irq_wake() callers
- * @irq_count:		stats field to detect stalled irqs
- * @last_unhandled:	aging timer for unhandled count
- * @irqs_unhandled:	stats field for spurious unhandled interrupts
- * @threads_handled:	stats field for deferred spurious detection of threaded handlers
- * @threads_handled_last: comparator field for deferred spurious detection of theraded handlers
- * @lock:		locking for SMP
- * @affinity_hint:	hint to user space for preferred irq affinity
- * @affinity_notify:	context for notification of affinity changes
- * @pending_mask:	pending rebalanced interrupts
- * @threads_oneshot:	bitfield to handle shared oneshot threads
- * @threads_active:	number of irqaction threads currently running
- * @wait_for_threads:	wait queue for sync_irq to wait for threaded handlers
- * @nr_actions:		number of installed actions on this descriptor
- * @no_suspend_depth:	number of irqactions on a irq descriptor with
- *			IRQF_NO_SUSPEND set
- * @force_resume_depth:	number of irqactions on a irq descriptor with
- *			IRQF_FORCE_RESUME set
- * @dir:		/proc/irq/ procfs entry
- * @name:		flow handler name for /proc/interrupts output
- */
+// 中断描述
 struct irq_desc {
 	struct irq_data		irq_data;
 	unsigned int __percpu	*kstat_irqs;
@@ -877,13 +830,104 @@ linux管理中断方法可分为动态和静态。
 
    使用动态 radix tree
 
- 
 
-内核中一般使用tasklet实现中断下半部分。
+
+注册的 中断处理函数(irq_handler_t) 仅处理紧急事件，如果其他有较多的任务，可创建中断下半部分来进行处理。此时的 中断处理函数(irq_handler_t) 又叫中断上半部分。
+
+##  tasklet
+
+内核中一般使用tasklet实现中断下半部分，有以下限制：
 
 tasklet 绑定的函数同一时间只能在一个cpu上运行。
 
-tasklet 绑定的函数不可以使用任何引起休眠的函数。
+tasklet 绑定的函数不可以使用任何引起休眠的函数，否则会引起内核异常。
+
+```c
+/* Tasklets --- multithreaded analogue of BHs.
+
+   Main feature differing them of generic softirqs: tasklet
+   is running only on one CPU simultaneously.
+
+   Main feature differing them of BHs: different tasklets
+   may be run simultaneously on different CPUs.
+
+   Properties:
+   * If tasklet_schedule() is called, then tasklet is guaranteed
+     to be executed on some cpu at least once after this.
+   * If the tasklet is already scheduled, but its execution is still not
+     started, it will be executed only once.
+   * If this tasklet is already running on another CPU (or schedule is called
+     from tasklet itself), it is rescheduled for later.
+   * Tasklet is strictly serialized wrt itself, but not
+     wrt another tasklets. If client needs some intertask synchronization,
+     he makes it with spinlocks.
+ */
+
+struct tasklet_struct
+{
+	struct tasklet_struct *next; 	// 链表下一个节点
+	unsigned long state;·			// 调度状态
+	atomic_t count;					// 0:使能 非0:未使能
+	void (*func)(unsigned long);	// 绑定中断下文的函数
+	unsigned long data;				// func 的参数
+};
+
+// 把某个tasklet加入调度，如果调度选中时为使能状态，则会执行相应函数
+static inline void tasklet_schedule(struct tasklet_struct *t)
+// 把某个已经使能的 tasklet 移出调度，如果目标正在执行会等待其执行完成
+void tasklet_kill(struct tasklet_struct *t);
+```
+
++ 模块初始化 **modue_init**()
+  + 取得中断号 并 注册中断上半部分 **request_irq**()
+    + 在中断上半部分中，把 tasklet 加入调度 **tasklet_schedule**()
+  + 可动态初始化 tasklet，默认为使能状态。 **tasklet_init**()
++ 模块退出 **module_exit**()
+  + 释放中断 **free_irq**()
+  + 可以使能tasklet，防止下次不能成功运行 **tasklet_enable**()
+  + 把 tasklet 移出调度 **tasklet_kill**()
+
+
+
+## 软中断
+
+软中断也是实现中断下半部分的方法之一，但是软中断资源有限，中断号不多，一般用于网络设备驱动、块设备驱动当中。
+
+内核开发者希望驱动工程师使用tasklet而不是软中断，所以 open_softirq、 raise_softirq 正常情况下不导出到符号表。
+
+```c
+/* PLEASE, avoid to allocate new softirqs, if you need not _really_ high
+   frequency threaded job scheduling. For almost all the purposes
+   tasklets are more than enough. F.e. all serial device BHs et
+   al. should be converted to tasklets, not to softirqs.
+ */
+// 内核定义软中断中断号，如果自己定义可在 NR_SOFTIRQS 之上添加自己的枚举值
+enum
+{
+	HI_SOFTIRQ=0,
+	TIMER_SOFTIRQ,
+	NET_TX_SOFTIRQ,
+	NET_RX_SOFTIRQ,
+	BLOCK_SOFTIRQ,
+	BLOCK_IOPOLL_SOFTIRQ,
+	TASKLET_SOFTIRQ,
+	SCHED_SOFTIRQ,
+	HRTIMER_SOFTIRQ,
+	RCU_SOFTIRQ,    /* Preferable RCU should always be the last softirq */
+
+	NR_SOFTIRQS
+};
+
+// 软中断 API
+// 软中断初始化
+void softirq_init(void);
+// 创建一个软中断
+void open_softirq(int nr, void (*action)(struct softirq_action *));
+// 使能一个软中断
+void raise_softirq(unsigned int nr);
+// 关闭一个软中断
+void raise_softirq_irqoff(unsigned int nr);
+```
 
 
 
