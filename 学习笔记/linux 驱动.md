@@ -842,6 +842,8 @@ tasklet 绑定的函数同一时间只能在一个cpu上运行。
 
 tasklet 绑定的函数不可以使用任何引起休眠的函数，否则会引起内核异常。
 
+tasklet 绑定的函数其实是运行在 TASKLET_SOFTIRQ 软中断 上下文中。
+
 ```c
 /* Tasklets --- multithreaded analogue of BHs.
 
@@ -893,7 +895,7 @@ void tasklet_kill(struct tasklet_struct *t);
 
 软中断也是实现中断下半部分的方法之一，但是软中断资源有限，中断号不多，一般用于网络设备驱动、块设备驱动当中。
 
-内核开发者希望驱动工程师使用tasklet而不是软中断，所以 open_softirq、 raise_softirq 正常情况下不导出到符号表。
+内核开发者希望驱动工程师使用tasklet而不是软中断，所以 open_softirq()、 raise_softirq() 正常情况下不导出到符号表。
 
 ```c
 /* PLEASE, avoid to allocate new softirqs, if you need not _really_ high
@@ -928,6 +930,82 @@ void raise_softirq(unsigned int nr);
 // 关闭一个软中断
 void raise_softirq_irqoff(unsigned int nr);
 ```
+
+## 工作队列
+
+工作队列是 实现中断下半部分的机制之一，与 tasklet 的区别是工作队列 处理过程中可以进行休眠，可以执行比tasklet 更耗时的工作。
+
+工作队列分为共享工作队列和自定义工作队列，如果共享工作队列不满足要求，可以使用自定义工作队列。
+
+共享工作队列：
+
++ 内核已经创建共享工作队列，该队列内有各种不同的驱动的工作
++ 驱动只需要往 linux全局队列 添加自定义的工作
+
+自定义工作队列：
+
++ 需要自己创建工作队列
++ 队列的维护需要消耗资源，故不优先使用。
+
+```c
+#include <linux/workqueue.h>
+// 工作队列中的工作
+struct work_struct {
+	atomic_long_t data;
+	struct list_head entry;	// 
+	work_func_t func;		// 回调函数，具体的工作
+};
+// 工作队列回调原型
+typedef void (*work_func_t)(struct work_struct *work);
+
+// API
+// 把一个工作添加到 linux 的 共享工作队列 中进行调度
+bool schedule_work(struct work_struct *work);
+// 取消一个已经调度的工作队列，如果正在执行，会等待执行完成
+bool cancel_work_sync(struct work_struct *work);
+
+// 创建工作队列，输入自定义的名字，返回工作队列指针 宏定义
+struct workqueue_struct *create_workqueue(const char *name);
+// 把一个工作添加到 特定的工作队列 中进行调度
+bool queue_work(struct workqueue_struct *wq, struct work_struct *work);
+```
+
+
+
+自定义工作队列使用：
+
++ 模块初始化 **modue_init**()
+  + 取得中断号 并 注册中断上半部分 **request_irq**()
+    + 在中断上半部分中，把 tasklet 加入调度 **tasklet_schedule**()
+  + 可动态初始化 tasklet，默认为使能状态。 **tasklet_init**()
++ 模块退出 **module_exit**()
+  + 释放中断 **free_irq**()
+  + 可以使能tasklet，防止下次不能成功运行 **tasklet_enable**()
+  + 把 tasklet 移出调度 **tasklet_kill**()
+
+工作队列可以使用命令  ps -aux 查看
+
+
+
+### 延时工作队列
+
+### 工作队列传参
+
+### 并发管理工作队列
+
+根据工作队列的flag参数，其任务可以分配给 CPU上运行的不同线程来执行：
+
++ CPU内 高优先级线程
++ CPU内 正常优先级线程
++ 不与 CPU 绑定的线程
+
+## 中断线程化
+
+中断线程化也是实现中断上半部分和下半部分的方式之一。
+
+下半部分的任务会交给一个中断线程来处理，这个内核线程只用于这个中断。
+
+当发生中断的时候，中断上半部分会唤醒这个内核线程，然后由这个内核线程来执行下半部分的函数。
 
 
 
@@ -1375,10 +1453,6 @@ struct device_node {
 };
 
 ```
-
-
-
-
 
 
 
