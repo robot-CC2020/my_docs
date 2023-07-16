@@ -329,6 +329,25 @@ MODULVERSION("v1.0");
 1. 把驱动编译进内核，内核启动时自动加载
 2. 把驱动编译成模块，使用 insmod命令 动态加载
 
+编译成模块的 Makefile 模板
+
+```makefile
+obj-m += helloworld.o	# -m 表示编译成模块
+KDIR:=/path/to/linux-kernel # 以绝对路径的方式指向内核源码路径
+PWD?=$(shell pwd)		# Makefile 所在路径
+
+# 进入到Makefile路径，并使用该目录下的源码编译驱动模块
+all:
+	make -C $(KDIR) M=$(PWD) modules
+# 删除产生的文件
+clean:
+	rm -r *.ko *.mod.o *.mod.c *.symvers *.order
+```
+
+路径指定的内核源码必须编译过，否则无法编译内核模块。
+
+编译前需要设置 ARCH 和 CROSS_COMPILE 环境变量。
+
 
 
 ## 字符设备
@@ -1369,15 +1388,10 @@ pinctrl 可以分为 client 和sevice两部分。
 		rockchip.pins = 
 			# 把gpio3的 c5和c4引脚,设置成复用4功能，电气属性为上拉
 			<3 RK_PC5 4 &pcfg_pull_up>,
-			<3 RK_PC4 4 &pcfg_pull_up>;
+			<3 RK_PC4 4 &pcg_pull_up>;
 	}
 }
-
 ```
-
-
-
-
 
 
 
@@ -1410,8 +1424,6 @@ uboot启动内核时会把设备树内存地址传递给linux内核。
 1. 节点含有有 compatible 属性。
 2. 节点的 compatible 属性不能包含"arm,primecell" 任意一个值。（会转换成amba设备）
 3. 父节点为根节点，或者父节点的 compatible 属性包含"simple-bus", "simple-mfd", "isa"其中之一。
-
-
 
 
 
@@ -1474,7 +1486,78 @@ pinctrl 子系统管理 200 个 IO 口的上拉下拉电阻，电流驱动能力
 
 
 
-注意：pinctrl 子系统也是一个标准的 platform 驱动，当设备和驱动匹配的时候，probe 函数会执行，只是 pinctrl 子系统采用的 arch_initcall 去声明，而不是 module_init（device_initcall），所以在系统起来的时候它会先加载。
+## pinctrl 子系统
+
+pinctrl 子系统也是一个标准的 platform 驱动，也存在相应的设备树节点、驱动代码、驱动probe函数等。
+
+只是 pinctrl 子系统不是用 宏定义module_init(XXX_init) 来声明入口函数，而是使用 arch_initcall(XXX_init) 去声明，所以在系统启动的时候它会优先加载。
+
+在其他模块（如 IIC 485 等）加载时，pinctrl子系统会在 该模块probe函数执行前，设置引脚的复用关系。
+
+```c
+#include <linux/pinctrl/pinctrl.h>
+
+
+/**
+ * struct pinctrl_desc - pin controller descriptor, register this to pin
+ * control subsystem
+ * @name: name for the pin controller
+ * @pins: an array of pin descriptors describing all the pins handled by
+ *	this pin controller
+ * @npins: number of descriptors in the array, usually just ARRAY_SIZE()
+ *	of the pins field above
+ * @pctlops: pin control operation vtable, to support global concepts like
+ *	grouping of pins, this is optional.
+ * @pmxops: pinmux operations vtable, if you support pinmuxing in your driver
+ * @confops: pin config operations vtable, if you support pin configuration in
+ *	your driver
+ * @owner: module providing the pin controller, used for refcounting
+ * @num_custom_params: Number of driver-specific custom parameters to be parsed
+ *	from the hardware description
+ * @custom_params: List of driver_specific custom parameters to be parsed from
+ *	the hardware description
+ * @custom_conf_items: Information how to print @params in debugfs, must be
+ *	the same size as the @custom_params, i.e. @num_custom_params
+ */
+struct pinctrl_desc {
+	const char *name;					// pinctrl结构体名字
+	struct pinctrl_pin_desc const *pins; // 可控制的引脚
+	unsigned int npins;			// pins 数组长度
+	const struct pinctrl_ops *pctlops;	// 对引脚groups(如串口） 的操作集、可选项
+	const struct pinmux_ops *pmxops;	// 对引脚复用配置 的操作集
+	const struct pinconf_ops *confops;	// 对引脚配置（如上下拉）的操作集
+	struct module *owner;		// 拥有者，往往赋值为 THIS_MODULE
+};
+
+// 根据构建好的 pinctrl_desc 生成一个设备
+
+```
+
+pinctrl_desc 是内核定义的结构体，在芯片厂家的驱动代码，如 pinctrl的驱动probe 函数中，往往把它封装一层。
+
+如 瑞芯微定义的 struct rockchip_pinctrl 结构体，就封装了 struct pinctrl_desc  struct pinctrl_dev 结构体。
+
+
+
+设备树种的节点会转换成结构体 struct pinctrl_map，该结构体描由 struct pinctrl_maps 结构体以链表形式进行管理。
+
+## pinctrl API
+
+在 Linux 中，加 devm_ 开头的函数，代表这个函数支持资源管理。
+
+> 一般情况下，我们写一个驱动程序，在程序开头都会申请资源，比如内存、中断号等，万一后面哪一步申请出错，我们要回滚到第一步，去释放已经申请的资源，这样很麻烦。后来 Linux 开发出了很多 devm_ 开头的函数，代表这个函数有支持资源管理的版本，不管哪一步出错，只要错误退出，就会自动释放所申请的资源。
+
+1. devm_pinctrl_get：用于获取设备树中自己用 pinctrl 建立的节点的句柄；
+
+2. pinctrl_lookup_state：用于选择其中一个 pinctrl 的状态，同一个 pinctrl 可以有很多状态。比如 GPIO50 ，**一开始初始化的时候是 I2C ，设备待机时候，我希望切换到普通 GPIO 模式，并且配置为下拉输入，省电**。这时候如果 pinctrl 节点有描述，我们就可以在代码中切换 pin 的功能，从 I2C 功能切换成普通 GPIO 功能；
+
+3. pinctrl_select_stat：用于真正设置，在上一步获取到某个状态以后，这一步真正设置为这个状态。
+
+对于 pinctrl 子系统的设备树配置，是遵守 **service 和 client 结构**。
+
+client 端各个平台基本都是一样的，server 端每个平台都不一样，使用的字符串的配置也不一样。
+
+
 
 
 
@@ -1489,22 +1572,6 @@ pinctrl 子系统管理 200 个 IO 口的上拉下拉电阻，电流驱动能力
 4. gpio_direction_input、gpio_direction_output : 请求到这个 gpio 以后，我们就可以对它进行操作，比如获取到它的值，设置它的值。
 
 5. gpio_free : 使用完以后，释放这个 gpio。
-
-
-
-## pinctrl API
-
-在 Linux 中，加 devm_ 开头的函数，代表这个函数支持资源管理。一般情况下，我们写一个驱动程序，在程序开头都会申请资源，比如内存、中断号等，万一后面哪一步申请出错，我们要回滚到第一步，去释放已经申请的资源，这样很麻烦。后来 Linux 开发出了很多 devm_ 开头的函数，代表这个函数有支持资源管理的版本，不管哪一步出错，只要错误退出，就会自动释放所申请的资源。
-
-1. devm_pinctrl_get：用于获取设备树中自己用 pinctrl 建立的节点的句柄；
-
-2. pinctrl_lookup_state：用于选择其中一个 pinctrl 的状态，同一个 pinctrl 可以有很多状态。比如 GPIO50 ，**一开始初始化的时候是 I2C ，设备待机时候，我希望切换到普通 GPIO 模式，并且配置为下拉输入，省电**。这时候如果 pinctrl 节点有描述，我们就可以在代码中切换 pin 的功能，从 I2C 功能切换成普通 GPIO 功能；
-
-3. pinctrl_select_stat：用于真正设置，在上一步获取到某个状态以后，这一步真正设置为这个状态。
-
-对于 pinctrl 子系统的设备树配置，是遵守 **service 和 client 结构**。
-
-client 端各个平台基本都是一样的，server 端每个平台都不一样，使用的字符串的配置也不一样。
 
 
 

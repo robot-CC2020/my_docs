@@ -1,0 +1,25 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.8	//
+ARCH	Makefile	/^export ARCH=arm64#设置平台架构$/;"	m
+CROSS_COMPILE	Makefile	/^export CROSS_COMPILE=aarch64-linux-gnu-#交叉编译器前缀$/;"	m
+KDIR	Makefile	/^KDIR :=\/home\/topeet\/Linux\/linux_sdk\/kernel    #这里是你的内核目录                                                                                                                            $/;"	m
+PWD	Makefile	/^PWD ?= $(shell pwd)$/;"	m
+__this_module	chrdev_fops.mod.c	/^__visible struct module __this_module$/;"	v	typeref:struct:module
+__used	chrdev_fops.mod.c	/^__used$/;"	v	file:
+cdev_fops_test	chrdev_fops.c	/^static struct file_operations cdev_fops_test = {$/;"	v	typeref:struct:file_operations	file:
+cdev_test	chrdev_fops.c	/^static struct cdev cdev_test;\/\/定义struct cdev 类型结构体变量cdev_test，表示要注册的字符设备$/;"	v	typeref:struct:cdev	file:
+chrdev_fops_exit	chrdev_fops.c	/^module_exit(chrdev_fops_exit);\/\/注册出口函数$/;"	v
+chrdev_fops_exit	chrdev_fops.c	/^static void __exit chrdev_fops_exit(void)\/\/驱动出口函数$/;"	f	file:
+chrdev_fops_init	chrdev_fops.c	/^module_init(chrdev_fops_init);\/\/注册入口函数$/;"	v
+chrdev_fops_init	chrdev_fops.c	/^static int __init chrdev_fops_init(void)\/\/驱动入口函数$/;"	f	file:
+chrdev_open	chrdev_fops.c	/^static int chrdev_open(struct inode *inode, struct file *file)$/;"	f	file:
+chrdev_read	chrdev_fops.c	/^static ssize_t chrdev_read(struct file *file,char __user *buf, size_t size, loff_t *off)$/;"	f	file:
+chrdev_release	chrdev_fops.c	/^static int chrdev_release(struct inode *inode, struct file *file)$/;"	f	file:
+chrdev_write	chrdev_fops.c	/^static ssize_t chrdev_write(struct file *file,const char __user *buf,size_t size,loff_t *off)$/;"	f	file:
+class_test	chrdev_fops.c	/^static struct class *class_test;\/\/定于struct class *类型结构体变量class_test，表示要创建的类$/;"	v	typeref:struct:class	file:
+dev_num	chrdev_fops.c	/^static dev_t dev_num;\/\/定义dev_t类型变量dev_num来表示设备号$/;"	v	file:
+obj-m	Makefile	/^obj-m := chrdev_fops.o$/;"	m

@@ -280,7 +280,7 @@ boot
 
 
 
-![768f9216f07fa96d88645210acd4af3b](E:\学习资料\嵌入式Linux\学习笔记\uboot-linux移植.assets\768f9216f07fa96d88645210acd4af3b.png)
+![768f9216f07fa96d88645210acd4af3b](E:\学习资料\嵌入式Linux\git备份\学习笔记\uboot-linux移植.assets\768f9216f07fa96d88645210acd4af3b.png)
 
 
 
@@ -341,8 +341,23 @@ make 的过程，重点就是将各个子目录下的 built-in.o、.a 等文件�
 
 + zImage 是经过 gzip 压缩后的 Image，经过压缩以后其大小大概在 6MB 左右。
 + uImage 是老版本 uboot 专用的镜像文件，uImag 是在 zImage 前面加了一个长度为 64字节的“头”，这个头信息描述了该镜像文件的类型、加载位置、生成时间、大小等信息。
++ *.dtb 设备树文件  保存在 arch/arm/boot/dts/目录下
 
 新的uboot支持zImage启动，但是老的uboot可能还是需要使用uImage启动。
+
+
+
+## 设备树编译
+
+内核编译的时候会同时编译设备树，如果要单独编译某个设备树，需要以下步骤：
+
+1. 打开目录 arch/arm/boot/dts/ 确保设备树文件存在
+2. 编辑目录 arch/arm/boot/dts/ 下的 Makefile，在变量 dtb-$(CONFIG_SOC_IMX6ULL) 下添加与dts文件对应的dtb文件名：  imx6ull-alientek-emmc.dtb
+3. 回到根目录，执行语句如下：
+
+```shell
+make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- imx6ull-alientek-emmc.dtb
+```
 
 
 
@@ -702,7 +717,13 @@ static noinline void __init kernel_init_freeable(void)
 
 修改设备树Makefile  arch/arm/boot/dts/Makefile
 
+
+
+
+
 # 根文件系统
+
+根文件系统使用 busybox1.29.0
 
 ## busybox中文字符支持
 
@@ -721,7 +742,7 @@ my_make.sh
 export ARCH=arm
 export CROSS_COMPILE=arm-linux-gnueabihf-
 
-OUT_DIR=../busybox-output
+OUT_DIR=../busybox-output  # 设定根文件系统 输出的目录
 if [ -d ${OUT_DIR} ];then
     rm -rf ${OUT_DIR}
 fi
