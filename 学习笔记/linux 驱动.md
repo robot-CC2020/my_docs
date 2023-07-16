@@ -306,12 +306,13 @@ static void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 // 加载函数
 static int helloworld_init(void)
 {
+    printk("helloworld_init\n");
     return 0;
 }
 // 卸载函数
-static int helloworld_exit(void)
+static void helloworld_exit(void)
 {
-    return 0;
+    printk("helloworld_exit\n");
 }
 /* 必须使用宏指定 加载函数、卸载函数、GPL声明 */
 module_init(helloworld_init);
@@ -319,7 +320,7 @@ module_exit(helloworld_exit);
 MODULE_LICENSE("GPL");
 // 可选的 作者、版本等信息
 MODULE_AUTHOR("pdg");
-MODULVERSION("v1.0");
+MODULE_VERSION("v1.0");
 ```
 
 以上代码展示了一个内核模块最精简的框架，他不关联任何的硬件，也不创建设备文件。
@@ -347,8 +348,6 @@ clean:
 路径指定的内核源码必须编译过，否则无法编译内核模块。
 
 编译前需要设置 ARCH 和 CROSS_COMPILE 环境变量。
-
-
 
 ## 字符设备
 
