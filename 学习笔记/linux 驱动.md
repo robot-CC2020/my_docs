@@ -585,24 +585,76 @@ void device_destroy(struct class *cls, dev_t devt);
 ## 设备文件/文件夹
 
 ```shell
-ls /sys/class/ #查看 class_create 创建的文件夹
-ls /dev/ #查看 device_create 创建的文件(设备节点)，该文件可以使用 open close操作
-ls -al /dev/xxx #可以看出设备类型，主设备号、次设备号
+ls /sys/class/ # 查看 class_create 创建的文件夹
+
+ls /dev/ # 查看 device_create 创建的文件(设备节点)，该文件可以使用 open close操作
+ls -al /dev/xxx # 可以看出设备类型，主设备号、次设备号
 
 
-ls /sys/bus/platform/devices #查看加载的平台总线设备文件夹
-ls /sys/bus/platform/drivers #查看加载的平台总线驱动文件夹
-cat /proc/devices #查看所有系统已经使用设备号
-cat /proc/(pid)/maps #查看进程使用的虚拟地址
+ls /sys/bus/platform/devices # 查看加载的平台总线 设备 文件夹
+ls /sys/bus/platform/drivers # 查看加载的平台总线 驱动 文件夹
+
+cat /proc/devices # 查看所有系统 已经使用设备号
+cat /proc/(pid)/maps # 查看进程使用的 虚拟地址
 ```
 
 
 
 ## 设备树信息
 
-目录 /proc/device-tree，所有设备树节点都以文件夹形式存在。
+目录 /sys/firmware/devicetree，所有设备树节点都以文件夹形式存在。
 
 可在此查看所有节点、节点属性及其取值。
+
+设备树部分源码如下：
+
+```htaccess
+	soc {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "simple-bus";
+		interrupt-parent = <&gpc>;
+		ranges;
+		aips1: aips-bus@02000000 {
+			compatible = "fsl,aips-bus", "simple-bus";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			reg = <0x02000000 0x100000>;
+			ranges;
+				uart1: serial@02020000 {
+					compatible = "fsl,imx6ul-uart",
+						     "fsl,imx6q-uart", "fsl,imx21-uart";
+					reg = <0x02020000 0x4000>;
+					interrupts = <GIC_SPI 26 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&clks IMX6UL_CLK_UART1_IPG>,
+						 <&clks IMX6UL_CLK_UART1_SERIAL>;
+					clock-names = "ipg", "per";
+					status = "disabled";
+				};
+			gpio1: gpio@0209c000 {
+				compatible = "fsl,imx6ul-gpio", "fsl,imx35-gpio";
+				reg = <0x0209c000 0x4000>;
+				interrupts = <GIC_SPI 66 IRQ_TYPE_LEVEL_HIGH>,
+					     <GIC_SPI 67 IRQ_TYPE_LEVEL_HIGH>;
+				gpio-controller;
+				#gpio-cells = <2>;
+				interrupt-controller;
+				#interrupt-cells = <2>;
+			};
+		};
+	};
+```
+
+其中 gpio1 对应节点：
+
+```bash
+# imx6ull 节点 soc/aips-bus@02000000/gpio@0209c000
+/sys/firmware/devicetree/base/soc/aips-bus@02000000/gpio@0209c000 # ls
+#gpio-cells           interrupt-controller  phandle
+#interrupt-cells      interrupts            reg
+compatible            linux,phandle
+gpio-controller       name
+```
 
 
 
@@ -1337,61 +1389,6 @@ imx6ull.dtsi
   + clocks
   + soc：描述了内部外设，比如ecspi1~4、uart1~8、usbphy1~2、i2c1~4 等等
 
-### 描述 GPIO
-
-```bash
-/ {
-    led:led@1{  # 别名:节点名
-        compatible="led";  # 用于匹配驱动
-        gpios=<&gpio0 RK_PB7 1> # cell的个数由gpio控制器(gpio0)指定，此处为2（引脚+默认电平）
-    }
-};
-```
-
-### pinctrl 语法
-
-pinctrl 可以分为 client 和sevice两部分。
-
-其中client具备固定格式，而service因平台（瑞芯微、恩智浦……）的不同而不同。
-
-```shell
-# 客户端例子1
-{
-	pinctrl-names = "default"; # 该属性表示设备状态，此处表示状态0为"default"
-	pinctrl-0 = <&pinctr_i2c2>; # 该属性表示状态0对应的引脚在 节点pinctr_i2c2 中配置
-}
-
-# 客户端例子2
-{
-	pinctrl-names = "default", "wake up"; # 有两个状态
-	pinctrl-0 = <&pinctrl_hog_1 &pinctrl_hog_2>; # 状态0("default") 由两个节点配置
-	pinctrl-1 = <&pinctrl_hog_3>; # 状态1("wake up") 由节点pinctrl_hog_3配置
-}
-```
-
-```shell
-# 服务端例子 恩智浦
-&iomuxc{
-	pinctr_i2c2:i2c2grp{
-		fsl,pins = <
-			# 把 uart5 的两个引脚,复用成 i2c 的引脚，后面的数值表示电气属性，可查手册
-			MX6UL_PAD_UART5_TX_DATA_I2C2_SCL 0X4001b8b0
-			MX6UL_PAD_UART5_RX_DATA_I2C2_SDA 0X4001b8b0
-		>;
-	}
-}
-
-# 服务端例子 瑞芯微
-&iomuxc{
-	uart7m1_xfer:uart7m1-xfer{
-		rockchip.pins = 
-			# 把gpio3的 c5和c4引脚,设置成复用4功能，电气属性为上拉
-			<3 RK_PC5 4 &pcfg_pull_up>,
-			<3 RK_PC4 4 &pcg_pull_up>;
-	}
-}
-```
-
 
 
 ## 设备树编译
@@ -1467,6 +1464,14 @@ struct device_node {
 
 
 
+# 热插拔
+
+热插拔机制有devfs、udev、mdev，其中 mdev 是udev的简化版本，常用于嵌入式设备中。
+
+mdev是基于uevent_helper机制，内核产生的uevent会调用uevent_helper所指的用户程序mdev来执行热插拔动作。
+
+
+
 # 内核子系统
 
 **Linux 内核针对 PIN 的配置推出了 pinctrl 子系统，对 GPIO 的配置推出了 gpio 子系统。**
@@ -1489,35 +1494,74 @@ pinctrl 子系统管理 200 个 IO 口的上拉下拉电阻，电流驱动能力
 
 pinctrl 子系统也是一个标准的 platform 驱动，也存在相应的设备树节点、驱动代码、驱动probe函数等。
 
-只是 pinctrl 子系统不是用 宏定义module_init(XXX_init) 来声明入口函数，而是使用 arch_initcall(XXX_init) 去声明，所以在系统启动的时候它会优先加载。
+以IMX6ULL为例，其驱动代码位于 drivers\pinctrl\freescale\pinctrl-imx6ul.c
 
-在其他模块（如 IIC 485 等）加载时，pinctrl子系统会在 该模块probe函数执行前，设置引脚的复用关系。
++ 模块加载优先级
+
+​	pinctrl 子系统 是许多模块正常工作的基础，需要比其他模块优先加载，所以 pinctrl 子系统不是用 宏定义module_init(XXX_init) 来声明入口函数，而是使用 arch_initcall(XXX_init) 去声明，保证在系统启动的时候它会优先加载。
+
++ 设置引脚复用时机
+
+​	在其他模块（如 IIC 485 等）加载时，pinctrl子系统会在 该模块probe函数执行前，设置引脚的复用关系。
+
+### pinctrl 设备树
+
+pinctrl 的设备树可以分为 client 和sevice两部分。
+
+其中client具备固定格式，而service因平台（瑞芯微、恩智浦……）的不同而不同。
+
+```shell
+# 客户端例子1
+{
+	pinctrl-names = "default"; # 该属性表示设备状态，此处表示状态0为"default"
+	pinctrl-0 = <&pinctr_i2c2>; # 该属性表示状态0对应的引脚在 节点pinctr_i2c2 中配置
+}
+
+# 客户端例子2
+{
+	pinctrl-names = "default", "wake up"; # 有两个状态
+	pinctrl-0 = <&pinctrl_hog_1 &pinctrl_hog_2>; # 状态0("default") 由两个节点配置
+	pinctrl-1 = <&pinctrl_hog_3>; # 状态1("wake up") 由节点pinctrl_hog_3配置
+}
+```
+
+```shell
+# 服务端例子 恩智浦
+# 以 IMX6ULL 为例，其IO复用相关节点有 
+# iomuxc: iomuxc@020e0000
+# iomuxc_snvs: iomuxc-snvs@02290000
+# gpr: iomuxc-gpr@020e4000
+# 分别于参考手册上的寄存器地址映射相对应。，位于 arch\arm\boot\dts\imx6ull.dtsi
+&iomuxc{
+	# 该节点位于 arch\arm\boot\dts\imx6ull-alientek-emmc.dts，与具体开发板相关
+	# 把原本为 uart5 的两个引脚,复用成 i2c 的引脚
+    pinctrl_i2c2: i2c2grp {
+    	# 第一个宏(MX6UL_PAD_XXX) 为 5个数值，其定义位于 arch\arm\boot\dts\imx6ul-pinfunc.h
+    	# 后面的一个数值(0x400xxx) 表示电气属性，该节点内的值含义 可查手册
+        fsl,pins = <
+            MX6UL_PAD_UART5_TX_DATA__I2C2_SCL 0x4001b8b0
+            MX6UL_PAD_UART5_RX_DATA__I2C2_SDA 0x4001b8b0
+        >;
+    };
+}
+
+# 服务端例子 瑞芯微
+&iomuxc{
+	uart7m1_xfer:uart7m1-xfer{
+		rockchip.pins = 
+			# 把gpio3的 c5和c4引脚,设置成复用4功能，电气属性为上拉
+			<3 RK_PC5 4 &pcfg_pull_up>,
+			<3 RK_PC4 4 &pcg_pull_up>;
+	}
+}
+```
+
+
+
+### pinctrl 内核代码
 
 ```c
 #include <linux/pinctrl/pinctrl.h>
-
-
-/**
- * struct pinctrl_desc - pin controller descriptor, register this to pin
- * control subsystem
- * @name: name for the pin controller
- * @pins: an array of pin descriptors describing all the pins handled by
- *	this pin controller
- * @npins: number of descriptors in the array, usually just ARRAY_SIZE()
- *	of the pins field above
- * @pctlops: pin control operation vtable, to support global concepts like
- *	grouping of pins, this is optional.
- * @pmxops: pinmux operations vtable, if you support pinmuxing in your driver
- * @confops: pin config operations vtable, if you support pin configuration in
- *	your driver
- * @owner: module providing the pin controller, used for refcounting
- * @num_custom_params: Number of driver-specific custom parameters to be parsed
- *	from the hardware description
- * @custom_params: List of driver_specific custom parameters to be parsed from
- *	the hardware description
- * @custom_conf_items: Information how to print @params in debugfs, must be
- *	the same size as the @custom_params, i.e. @num_custom_params
- */
 struct pinctrl_desc {
 	const char *name;					// pinctrl结构体名字
 	struct pinctrl_pin_desc const *pins; // 可控制的引脚
@@ -1536,11 +1580,9 @@ pinctrl_desc 是内核定义的结构体，在芯片厂家的驱动代码，如 
 
 如 瑞芯微定义的 struct rockchip_pinctrl 结构体，就封装了 struct pinctrl_desc  struct pinctrl_dev 结构体。
 
-
-
 设备树种的节点会转换成结构体 struct pinctrl_map，该结构体描由 struct pinctrl_maps 结构体以链表形式进行管理。
 
-## pinctrl API
+
 
 在 Linux 中，加 devm_ 开头的函数，代表这个函数支持资源管理。
 
@@ -1552,15 +1594,26 @@ pinctrl_desc 是内核定义的结构体，在芯片厂家的驱动代码，如 
 
 3. pinctrl_select_stat：用于真正设置，在上一步获取到某个状态以后，这一步真正设置为这个状态。
 
-对于 pinctrl 子系统的设备树配置，是遵守 **service 和 client 结构**。
-
-client 端各个平台基本都是一样的，server 端每个平台都不一样，使用的字符串的配置也不一样。
 
 
+## GPIO 子系统
 
 
 
-## gpio API
+###  GPIO 设备树
+
+```bash
+/ {
+    led:led@1{
+        compatible="led";  # 用于匹配驱动
+        gpios=<&gpio0 RK_PB7 1> # cell的个数由gpio控制器(gpio0)指定，此处为2（引脚+默认电平）
+    }
+};
+```
+
+
+
+### gpio 内核代码
 
 1. of_find_compatible_node : 函数在设备树中根据 device_type 和 compatible 这两个属性查找指定的节点，此处是为了获取在设备树中设置的 GPIO 的节点句柄。如果其他地方有获得句柄，那么可以直接使用这个句柄。
 
@@ -1571,14 +1624,5 @@ client 端各个平台基本都是一样的，server 端每个平台都不一样
 4. gpio_direction_input、gpio_direction_output : 请求到这个 gpio 以后，我们就可以对它进行操作，比如获取到它的值，设置它的值。
 
 5. gpio_free : 使用完以后，释放这个 gpio。
-
-
-
-# 热插拔
-
-热插拔机制有devfs、udev、mdev，其中 mdev 是udev的简化版本，常用于嵌入式设备中。
-
-mdev是基于uevent_helper机制，内核产生的uevent会调用uevent_helper所指的用户程序mdev来执行热插拔动作。
-
 
 
