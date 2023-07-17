@@ -532,7 +532,35 @@ void device_destroy(struct class *cls, dev_t devt);
 
 ## 杂项设备
 
-杂项设备是特殊的字符设备。
+在Linux中，把难以归类的设备定义成杂项设备，杂项设备是特殊的字符设备，使用更简单，更节约设备号。
+
+杂项设备与一般字符设备区别在于：
+
+1. 其主设备号固定位10，不会浪费主设备号。
+2. 杂项设备自动创建设备节点，不必要再调用 class_create device_create。
+
+```c
+#include <linux/miscdevice.h>
+
+struct miscdevice  {
+	int minor;			// 次设备号，赋值为宏 MISC_DYNAMIC_MINOR ，表示系统自动分配
+	const char *name;	// 设备名称
+	const struct file_operations *fops;	// 文件操作集合
+	struct list_head list;
+	struct device *parent;
+	struct device *this_device;
+	const struct attribute_group **groups;
+	const char *nodename;
+	umode_t mode;
+};
+
+// 注册杂项设备
+int misc_register(struct miscdevice *misc);
+
+// 卸载杂项设备
+int misc_deregister(struct miscdevice *misc);
+
+```
 
 
 
@@ -589,7 +617,6 @@ ls /sys/class/ # 查看 class_create 创建的文件夹
 
 ls /dev/ # 查看 device_create 创建的文件(设备节点)，该文件可以使用 open close操作
 ls -al /dev/xxx # 可以看出设备类型，主设备号、次设备号
-
 
 ls /sys/bus/platform/devices # 查看加载的平台总线 设备 文件夹
 ls /sys/bus/platform/drivers # 查看加载的平台总线 驱动 文件夹
@@ -1574,6 +1601,15 @@ struct pinctrl_desc {
 
 // 根据构建好的 pinctrl_desc 生成一个设备
 
+// 用于获取设备树中自己用 pinctrl 建立的节点的句柄
+devm_pinctrl_get
+
+// 用于选择其中一个 pinctrl 的状态
+pinctrl_lookup_state
+
+// 在上一步获取到某个状态以后，这一步真正设置为这个状态
+pinctrl_select_stat
+
 ```
 
 pinctrl_desc 是内核定义的结构体，在芯片厂家的驱动代码，如 pinctrl的驱动probe 函数中，往往把它封装一层。
@@ -1588,17 +1624,13 @@ pinctrl_desc 是内核定义的结构体，在芯片厂家的驱动代码，如 
 
 > 一般情况下，我们写一个驱动程序，在程序开头都会申请资源，比如内存、中断号等，万一后面哪一步申请出错，我们要回滚到第一步，去释放已经申请的资源，这样很麻烦。后来 Linux 开发出了很多 devm_ 开头的函数，代表这个函数有支持资源管理的版本，不管哪一步出错，只要错误退出，就会自动释放所申请的资源。
 
-1. devm_pinctrl_get：用于获取设备树中自己用 pinctrl 建立的节点的句柄；
-
-2. pinctrl_lookup_state：用于选择其中一个 pinctrl 的状态，同一个 pinctrl 可以有很多状态。比如 GPIO50 ，**一开始初始化的时候是 I2C ，设备待机时候，我希望切换到普通 GPIO 模式，并且配置为下拉输入，省电**。这时候如果 pinctrl 节点有描述，我们就可以在代码中切换 pin 的功能，从 I2C 功能切换成普通 GPIO 功能；
-
-3. pinctrl_select_stat：用于真正设置，在上一步获取到某个状态以后，这一步真正设置为这个状态。
-
 
 
 ## GPIO 子系统
 
+在实现驱动函数 read、write 时，可以通过操作寄存器的方式来控制GPIO，但这种方式太低效且不通用。
 
+BSP工程师会根据芯片实现GPIO子系统，GPIO 子系统封装了常见的GPIO功能，这样编写驱动的时候就可以调用GPIO 子系统的API，不再关心芯片寄存器等细节。
 
 ###  GPIO 设备树
 
@@ -1615,14 +1647,41 @@ pinctrl_desc 是内核定义的结构体，在芯片厂家的驱动代码，如 
 
 ### gpio 内核代码
 
-1. of_find_compatible_node : 函数在设备树中根据 device_type 和 compatible 这两个属性查找指定的节点，此处是为了获取在设备树中设置的 GPIO 的节点句柄。如果其他地方有获得句柄，那么可以直接使用这个句柄。
+GPIO的API分为两套接口，老一套的API以 gpio_ 作为前缀，用整数表示一个GPIO引脚；新的一套以 gpiod_ 作为前缀，用结构体 来表示一个GPIO引脚。
 
-2. of_get_named_gpio : 获取所设置的 gpio number。
+两套接口都有 获得GPIO引脚、释放GPIO引脚、设置输入输出、设置输出数据等功能。
 
-3. gpio_request  : 请求这个 gpio 。如果其他地方请求了这个 gpio，还没有释放，那么我们会请求不到。
+```c
+#include <linux/gpio.h>
 
-4. gpio_direction_input、gpio_direction_output : 请求到这个 gpio 以后，我们就可以对它进行操作，比如获取到它的值，设置它的值。
+// 请求这个gpio，如果其他地方请求了这个gpio且没有释放，那么会失败
+gpio_request
 
-5. gpio_free : 使用完以后，释放这个 gpio。
+gpio_direction_input
+gpio_direction_output
+gpio_get_value
+gpio_set_value
+// 释放GPIO
+gpio_free
+gpio_free_array
+```
 
+```c
+#include <linux/gpio/consumer.h>
+gpiod_get
+gpiod_get_array
+
+devm_gpiod_get
+devm_gpiod_get_array
+
+gpiod_direction_input
+gpiod_direction_output
+
+gpiod_get_value 
+gpiod_set_value
+
+gpio_free
+gpiod_put
+
+```
 
