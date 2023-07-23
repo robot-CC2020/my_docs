@@ -421,6 +421,8 @@ void cdev_del(struct cdev *);
 1. 注销分配的设备号
 2. 调用cdev_del删除字符设备
 
+次设备号怎么使用完全由驱动程序决定，一般是用来选择某个设备，也可以和主设备号结合，再用来找到其他驱动程序。
+
 ## 文件操作
 
 ```c
@@ -1004,6 +1006,65 @@ linux管理中断方法可分为动态和静态。
 
 注册的 **中断处理函数(irq_handler_t)** 仅处理紧急事件，如果其他有较多的任务，可创建中断下半部分来进行处理。此时的 中断处理函数(irq_handler_t) 又叫**中断上半部分**。
 
+## 设备树中的中断
+
+中断有级联结构，该结构由设备树来指定。
+
++ 中断控制器节点：
+
+arch\arm\boot\dts\imx6ull.dtsi
+
+```json
+
+intc: interrupt-controller@00a01000 {
+    compatible = "arm,cortex-a7-gic";	// 通过中断控制器，GIC
+    #interrupt-cells = <3>;				// 下级使用者需要用几个整数表示中断
+    interrupt-controller;				// 表明本节点是中断控制器节点
+    reg = <0x00a01000 0x1000>,
+          <0x00a02000 0x100>;
+};
+
+soc {
+    #address-cells = <1>;
+    #size-cells = <1>;
+    compatible = "simple-bus";
+    interrupt-parent = <&gpc>; 		// 指定中断上级节点，该属性值会传递给子孙节点，直到被覆盖为止
+    ranges;
+}
+
+gpio1: gpio@0209c000 {					// 本节点没有指定 interrupt-parent属性，继承上级节点（gpio1->aips1->soc）的值
+    compatible = "fsl,imx6ul-gpio", "fsl,imx35-gpio";
+    reg = <0x0209c000 0x4000>;
+    interrupts = <GIC_SPI 66 IRQ_TYPE_LEVEL_HIGH>,
+             <GIC_SPI 67 IRQ_TYPE_LEVEL_HIGH>;
+    gpio-controller;
+    #gpio-cells = <2>;
+    interrupt-controller;				// 本节点是 中断控制器
+    #interrupt-cells = <2>;				// 使用本节点的中断，需要使用两个整数表示
+};
+```
+
+
+
++ 使用中断节点：
+
+arch\arm\boot\dts\imx6ull-alientek-emmc.dts
+
+```json
+   edt-ft5x06@38 {
+		compatible = "edt,edt-ft5306", "edt,edt-ft5x06";
+		pinctrl-names = "default";
+		pinctrl-0 = <&ts_int_pin &ts_reset_pin>;
+
+		reg = <0x38>;
+		interrupt-parent = <&gpio1>;		// 提供中断的父节点、中断控制器节点
+		interrupts = <9 0>;					// 使用9号中断（硬件中断号），gpio1 规定了使用两个整数
+		reset-gpios = <&gpio5 9 GPIO_ACTIVE_LOW>;
+		irq-gpios = <&gpio1 9 GPIO_ACTIVE_LOW>;
+		status = "okay";
+	};
+```
+
 
 
 ##  tasklet
@@ -1504,8 +1565,6 @@ imx6ull.dtsi
   + interrupt-controller
   + clocks
   + soc：描述了内部外设，比如ecspi1~4、uart1~8、usbphy1~2、i2c1~4 等等
-
-
 
 ## 设备树编译
 
