@@ -26,7 +26,7 @@
 
 一级页表项里的内容，末尾两位决定了它是指向一块物理内存，还是指问二级页表，如下图：
 
-![image-20230630010633688](E:\学习资料\嵌入式Linux\git备份\学习笔记\linux 驱动.assets\image-20230630010633688.png)
+![image-20230630010633688](.\linux 驱动.assets\image-20230630010633688.png)
 
 
 
@@ -34,7 +34,7 @@
 
 应用程序调用mmap，最终会调用到驱动程序的 mmap。
 
-![image-20230630014646124](E:\学习资料\嵌入式Linux\git备份\学习笔记\linux 驱动.assets\image-20230630014646124.png)
+![image-20230630014646124](.\linux 驱动.assets\image-20230630014646124.png)
 
 
 
@@ -42,7 +42,7 @@
 
 ### cache 与 buffer
 
-![image-20230630015450655](E:\学习资料\嵌入式Linux\git备份\学习笔记\linux 驱动.assets\image-20230630015450655.png)
+![image-20230630015450655](.\linux 驱动.assets\image-20230630015450655.png)
 
 
 
@@ -81,13 +81,27 @@
 
 ### 共享中断 与 非共享中断
 
-![image-20230627223514668](E:\学习资料\嵌入式Linux\git备份\学习笔记\linux 驱动.assets\image-20230627223514668.png)
+![image-20230627223514668](.\linux 驱动.assets\image-20230627223514668.png)
 
 共享中断：多个外设共用同一个中断源。
 
 非共享中断：一个中断源只有一个外设触发。
 
 在linux内核中，每个中断源都有一个整数与之对应。
+
+### 中断号
+
+中断号这个概念可能指**软件中断号**或者**硬件中断号**。
+
++ 硬件中断号
+
+  以GPIO为例，GPIO1 和 GPIO2 都有 5号中断（硬件中断号），对于两者来说分别代表了不同的引脚。
+
++ 软件中断号
+
+  linux 内核对于每一个硬件中断都分配了一个软件中断号，根据软件中断号可以区分每个硬件设备的中断。
+
+
 
 ### linux 中断向量表处理
 
@@ -289,8 +303,6 @@ static void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 	} while (1);
 }
 ```
-
-
 
 
 
@@ -801,6 +813,8 @@ void poll_wait(struct file * filp, wait_queue_head_t * wait_address, poll_table 
 
 ## 基础知识
 
+### GIC
+
 | GIC 中断源分类     | 中断号    | 描述                                            |
 | ------------------ | --------- | ----------------------------------------------- |
 | SGI 软件通用中断   | 0 - 15    | 用于core之间相互通信                            |
@@ -814,9 +828,18 @@ void poll_wait(struct file * filp, wait_queue_head_t * wait_address, poll_table 
 
 硬件中断与linux中断框架：
 
-![image-20230619012516471](E:\学习资料\嵌入式Linux\git备份\学习笔记\linux 驱动.assets\image-20230619012516471.png)
+![image-20230619012516471](.\linux 驱动.assets\image-20230619012516471.png)
 
 
+
+### 中断上半部分和下半部分
+
+Linux 系统中有硬件中断，也有软件中断。对硬件中断的处理有 2 个原则：
+
+1. 不能嵌套
+2. 越快越好
+
+比较耗时的操作放在中断下半部分执行，中断下半部分有  tasklet、软中断、工作队列、中断线程化等方式。
 
 ## 中断相关驱动API
 
@@ -831,7 +854,7 @@ enum irqreturn {
 };
 typedef enum irqreturn irqreturn_t;
 
-// 中断处理函数原型（如果任务较长，则在此函数内创建 tasklet中断下半部分）
+// 中断处理函数原型（如果任务较长，则在此函数内创建中断下半部分）
 typedef irqreturn_t (*irq_handler_t)(int, void *);
 
 // 设备向内核注册中断处理函数 API
@@ -851,7 +874,7 @@ void free_irq(
 );
 ```
 
-
+获取中断号，以GPIO为例子：
 
 ```c
 #include <linux/gpio.h>
@@ -867,12 +890,53 @@ int gpio_to_irq(unsigned int gpio);
 ## 中断内核源码
 
 ```c
-// 中断行为
+/**
+ * struct irq_data - per irq and irq chip data passed down to chip functions
+ * @mask:		precomputed bitmask for accessing the chip registers
+ * @irq:		interrupt number
+ * @hwirq:		hardware interrupt number, local to the interrupt domain
+ * @node:		node index useful for balancing
+ * @state_use_accessors: status information for irq chip functions.
+ *			Use accessor functions to deal with it
+ * @chip:		low level interrupt hardware access
+ * @domain:		Interrupt translation domain; responsible for mapping
+ *			between hwirq number and linux irq number.
+ * @parent_data:	pointer to parent struct irq_data to support hierarchy
+ *			irq_domain
+ * @handler_data:	per-IRQ data for the irq_chip methods
+ * @chip_data:		platform-specific per-chip private data for the chip
+ *			methods, to allow shared chip implementations
+ * @msi_desc:		MSI descriptor
+ * @affinity:		IRQ affinity on SMP
+ *
+ * The fields here need to overlay the ones in irq_desc until we
+ * cleaned up the direct references and switched everything over to
+ * irq_data.
+ */
+// 
+struct irq_data {
+	u32			mask;
+	unsigned int		irq;				// 软件中断号
+	unsigned long		hwirq;				// 硬件中断号
+	unsigned int		node;
+	unsigned int		state_use_accessors;
+	struct irq_chip		*chip;				// 中断屏蔽、使能、禁止 等操作
+	struct irq_domain	*domain;			// 用于找到下一级中断触发源的软件中断号，含下一级的硬件中断与软件中断的映射等数据
+#ifdef	CONFIG_IRQ_DOMAIN_HIERARCHY
+	struct irq_data		*parent_data;
+#endif
+	void			*handler_data;
+	void			*chip_data;
+	struct msi_desc		*msi_desc;
+	cpumask_var_t		affinity;
+};
+
+// 用于描述中断中 设备的处理函数
 struct irqaction {
 	irq_handler_t		handler;	// 存放注册的 中断服务函数
 	void				*dev_id; 	// 存放注册的 指针参数，用于共享中断卸载时，找到需要卸载的设备
 	void __percpu		*percpu_dev_id;
-	struct irqaction	*next;
+	struct irqaction	*next;		// 链表，下一个设备的中断处理函数
 	irq_handler_t		thread_fn;
 	struct task_struct	*thread;
 	unsigned int		irq;
@@ -883,13 +947,12 @@ struct irqaction {
 	struct proc_dir_entry	*dir;
 } ____cacheline_internodealigned_in_smp;
 
-// 中断描述
+// 中断描述，用于描述每一个硬件中断，与软中断号一一对应
 struct irq_desc {
 	struct irq_data		irq_data;
 	unsigned int __percpu	*kstat_irqs;
-	irq_flow_handler_t	handle_irq;
-	struct irqaction	*action;	/* IRQ action 链表，每个成员表示不同的外设
-										如只有多个成员代表为本中断为共享中断 */
+	irq_flow_handler_t	handle_irq;	// BSP工程师编写的处理函数，可以根据寄存器找出下一级的中断触发源，并执行下一级的 handle_irq
+	struct irqaction	*action;	// IRQ action 链表，每项代表设备驱动注册的处理函数，如只有多个成员代表为本中断为共享中断
 	unsigned int		status_use_accessors;
 	unsigned int		core_internal_state__do_not_mess_with_it;
 	unsigned int		depth;		/* nested irq disables */
@@ -919,17 +982,29 @@ linux管理中断方法可分为动态和静态。
 
    使用静态全局变量数组 struct irq_desc irq_desc[NR_IRQS];
 
-   其下标为中断号，可通过 中断号 获取 中断描述符结构体。
+   其下标为硬件中断号，可通过 中断号 获取 中断描述符结构体。
 
    中断描述符 含有成员 action， 里面的中断服务函数（中断上半部分）。
 
 2. 动态方法
 
-   使用动态 radix tree
+   使用 基数树 radix tree
 
 
 
-注册的 中断处理函数(irq_handler_t) 仅处理紧急事件，如果其他有较多的任务，可创建中断下半部分来进行处理。此时的 中断处理函数(irq_handler_t) 又叫中断上半部分。
+中断的管理是级联的，比如 GPIO的引脚触发的中断，会传递给GPIO控制器，进而传递给GIC，最后再传递给CPU。
+
+在中断框架处理时，会先调用GIC对应**irq_desc结构体**的 **handle_irq函数**，找到GPIO控制器的软中断号，调用GPIO控制器的 **handle_irq函数**，以此类推。
+
+当最后找到真正触发中断的软件中断后，会遍历该中断对应的 **struct irqaction 结构体**，并执行内部注册的**中断处理函数(irq_handler_t)**。
+
+
+
+对于共享中断，**struct irq_desc 结构体**的 action 链表中有多个 **struct irqaction 结构体**。在共享中断发生时，每个链表成员相应的 **中断处理函数(irq_handler_t)**都会被框架执行。所以如果某个中断处理函数想忽略这个中断，可以在处理函数中直接返回 IRQ_NONE。
+
+注册的 **中断处理函数(irq_handler_t)** 仅处理紧急事件，如果其他有较多的任务，可创建中断下半部分来进行处理。此时的 中断处理函数(irq_handler_t) 又叫**中断上半部分**。
+
+
 
 ##  tasklet
 
@@ -1028,9 +1103,25 @@ void raise_softirq(unsigned int nr);
 void raise_softirq_irqoff(unsigned int nr);
 ```
 
+
+
+对于软中断来说，中断上下半部具有流程图如下:
+
+![image-20230723122013462](./linux 驱动.assets/image-20230723122013462.png)
+
+preempt_count 的作用是，在 多次中断发生时，中断下半部分不会嵌套执行。
+
+中断下半部有如下性质：
+
+1. 会执行各类软中断任务（其中含各种 tasklet），即多个中断共享同一个下半部分。
+2. 中断下半部代码执行时 preempt_count 肯定为
+3. 中断下半部执行期间，可能突然被中断，执行对应的上半部（此时preempt_count 肯定大于1）
+
+
+
 ## 工作队列
 
-工作队列是 实现中断下半部分的机制之一，与 tasklet 的区别是工作队列 处理过程中可以进行休眠，可以执行比tasklet 更耗时的工作。
+工作队列是 实现中断下半部分的机制之一，与 tasklet 的区别是工作队列 处理过程中**可以进行休眠**，可以执行比tasklet 更耗时的工作。
 
 工作队列分为共享工作队列和自定义工作队列，如果共享工作队列不满足要求，可以使用自定义工作队列。
 
@@ -1072,17 +1163,15 @@ bool queue_work(struct workqueue_struct *wq, struct work_struct *work);
 自定义工作队列使用：
 
 + 模块初始化 **modue_init**()
-  + 取得中断号 并 注册中断上半部分 **request_irq**()
-    + 在中断上半部分中，把 tasklet 加入调度 **tasklet_schedule**()
+  + 取得中断号 并 注册中断服务函数 **request_irq**()
+    + 在中断服务函数中，把 tasklet 加入调度 **tasklet_schedule**()
   + 可动态初始化 tasklet，默认为使能状态。 **tasklet_init**()
 + 模块退出 **module_exit**()
   + 释放中断 **free_irq**()
   + 可以使能tasklet，防止下次不能成功运行 **tasklet_enable**()
   + 把 tasklet 移出调度 **tasklet_kill**()
 
-工作队列可以使用命令  ps -aux 查看
-
-
+使用命令  ps -aux 查看，带 kworker 线程是内核线程，它们要去“工作队列”(work queue)上取出一个一个“工作”(work)，来执行它里面的函数。
 
 ### 延时工作队列
 
@@ -1623,6 +1712,42 @@ pinctrl_desc 是内核定义的结构体，在芯片厂家的驱动代码，如 
 在 Linux 中，加 devm_ 开头的函数，代表这个函数支持资源管理。
 
 > 一般情况下，我们写一个驱动程序，在程序开头都会申请资源，比如内存、中断号等，万一后面哪一步申请出错，我们要回滚到第一步，去释放已经申请的资源，这样很麻烦。后来 Linux 开发出了很多 devm_ 开头的函数，代表这个函数有支持资源管理的版本，不管哪一步出错，只要错误退出，就会自动释放所申请的资源。
+
+
+
+设备树中 pinctrl controller节点的 function 和 group 数据会转换成 pinctrl_map 结构体中的数据。
+
+```c
+#include <linux/pinctrl/machine.h>
+
+struct pinctrl_map_mux {
+	const char *group;
+	const char *function;
+};
+
+struct pinctrl_map_configs {
+	const char *group_or_pin;
+	unsigned long *configs;		// 配置信息 数组
+	unsigned num_configs;		// cofigs数组的长度
+};
+
+struct pinctrl_map {
+	const char *dev_name; 			// 使用这个map的设备的名字
+	const char *name;				// 本map的名字
+	enum pinctrl_map_type type;		// 转换的类型，如 虚拟化类型、引脚配置类型、引脚组类型
+	const char *ctrl_dev_name;		// 所属控制器的名字
+	union {
+		struct pinctrl_map_mux mux; // 含 字符串 group 和 function
+		struct pinctrl_map_configs configs;
+	} data;
+};
+```
+
+
+
+
+
+
 
 
 

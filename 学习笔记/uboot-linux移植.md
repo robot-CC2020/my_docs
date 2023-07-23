@@ -280,7 +280,7 @@ boot
 
 
 
-![768f9216f07fa96d88645210acd4af3b](E:\学习资料\嵌入式Linux\git备份\学习笔记\uboot-linux移植.assets\768f9216f07fa96d88645210acd4af3b.png)
+![768f9216f07fa96d88645210acd4af3b](.\uboot-linux移植.assets\768f9216f07fa96d88645210acd4af3b.png)
 
 
 
