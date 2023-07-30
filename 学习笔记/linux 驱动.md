@@ -364,7 +364,8 @@ clean:
 ## 字符设备
 
 ```c
-#include <linux/cdev.h>
+#include <linux/cdev.h> // 字符设备
+#include <linux/fs.h> // 设备号 文件操作
 struct cdev {
 	struct kobject kobj;
 	struct module *owner;
@@ -373,6 +374,11 @@ struct cdev {
 	dev_t dev; // 设备号 12位主设备号 + 20位次设备号
 	unsigned int count;
 };
+// 初始化 cdev结构体
+void cdev_init(
+    struct cdev *, // 需要初始化的结构体
+    const struct file_operations * // 对应的文件操作
+);
 
 // 注册某个范围的设备号，成功返回0，失败返回负数
 int register_chrdev_region(
@@ -389,37 +395,35 @@ int alloc_chrdev_region(
     const char *name // 设备的名字
 );
 
-// 注销分配得到的设备号
-int unregister_chrdev_region(
-    dev_t dev,  // 要释放的设备号，含主、次设备号
-    unsigned count, // 设备号的数量
-);
-
-// 初始化 cdev结构体
-void cdev_init(
-    struct cdev *, // 需要初始化的结构体
-    const struct file_operations * // 对应的文件操作
-);
 // 把字符设备添加到系统中
 int cdev_add(
     struct cdev *, // 已经初始化的字符设备
     dev_t, // 对应的设备号
     unsigned // 设备的数量，它们的次设备号是连续的
 );
+
+// 注销分配得到的设备号
+int unregister_chrdev_region(
+    dev_t dev,  // 要释放的设备号，含主、次设备号
+    unsigned count, // 设备号的数量
+);
+
 // 把字符设备删除
 void cdev_del(struct cdev *);
 ```
 
 在模块初始化时 注册字符设备：
 
-1. 创建 struct cdev结构体
-2. 获取设备号和操作方法
-3. 调用cdev_init和cdev_add添加字符设备
+1. 创建 struct cdev结构体，可以动态分配或者直接定义
+2. 初始化 struct cdev 结构体，绑定 file_operations
+3. 获取设备号
+4. 调用cdev_init和cdev_add添加字符设备
 
 在模块卸载时 注销字符设备：
 
 1. 注销分配的设备号
 2. 调用cdev_del删除字符设备
+3. 如果 struct cdev 为动态分配，需要释放
 
 次设备号怎么使用完全由驱动程序决定，一般是用来选择某个设备，也可以和主设备号结合，再用来找到其他驱动程序。
 
@@ -476,11 +480,11 @@ poll 是个轮询函数，用于查询设备是否可以进行非阻塞的读写
 
 unlocked_ioctl 函数提供对于设备的控制功能，与应用程序中的 ioctl 函数对应。
 
-compat_ioctl 函数与 unlocked_ioctl 函数功能一样，区别在于在 64 位系统上，32 位的应用程序调用将会使用此函数。在 32 位的系统上运行 32 位的应用程序调用的是unlocked_ioctl。
+compat_ioctl 函数与 unlocked_ioctl 函数功能一样，区别在于在 64 位系统上的 32 位的应用程序调用将会使用此函数。在 32 位的系统上运行 32 位的应用程序调用的是unlocked_ioctl。
 
 mmap 函数用于将将设备的内存映射到进程空间中(也就是用户空间)，一般帧缓冲设备会使用此函数，比如 LCD 驱动的显存，将帧缓冲(LCD 显存)映射到用户空间中以后应用程序就可以直接操作显存了，这样就不用在用户空间和内核空间之间来回复制。
 
-open 函数用于打开设备文件。
+open 函数用于打开设备文件，与应用程序中的 open 函数对应。
 
 release 函数用于释放(关闭)设备文件，与应用程序中的 close 函数对应。
 
