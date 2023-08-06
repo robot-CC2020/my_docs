@@ -1607,6 +1607,8 @@ uboot启动内核时会把设备树内存地址传递给linux内核。
 Linux 内核给我们提供了一系列的函数来获取设备树中的节点或者属性信息，这一系列的函数都有一个统一的前缀“of_”，所以在很多资料里面也被叫做 OF 函数。这些 OF 函数原型都定义在 include/linux/of.h 文件中。
 
 ```c
+#include <linux/of.h>
+
 struct property {
 	char	*name;	// 属性名，如"compatible"
 	int	length;		// 属性值长度
@@ -1638,6 +1640,13 @@ struct device_node {
 	struct of_irq_controller *irq_trans;
 #endif
 };
+
+// 从from节点开始 根据 name属性 寻找节点，如果from 为NULL 表示从根节点查找
+struct device_node *of_find_node_by_name(struct device_node *from, const char *name);
+// 根据设备树的全路径开始查找
+struct device_node *of_find_node_by_path(const char *path);
+// 从from节点开始 根据 device_type compatible属性 寻找节点，如果from 为NULL 表示从根节点查找，如果type为NULL表示忽略该参数
+struct device_node *of_find_compatible_node(struct device_node *from, const char *type, const char *compat);
 
 ```
 
