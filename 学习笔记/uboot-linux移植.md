@@ -717,7 +717,7 @@ static noinline void __init kernel_init_freeable(void)
 
 修改设备树Makefile  arch/arm/boot/dts/Makefile
 
-
+>tar.bz2 文件 需要在 linux下使用  tar -jxvf 解压，在windows 下使用360解压会出错 
 
 
 
