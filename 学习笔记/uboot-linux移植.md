@@ -242,7 +242,7 @@ root=/dev/nfs nfsroot=[<server-ip>:]<root-dir>[,<nfs-options>] ip=<client-ip>:<s
 + dns1-ip：DNS1 服务器 IP 地址，不使用。
 
 ```bash
-setenv bootargs 'console=ttymxc0,115200 root=/dev/nfs nfsroot=192.168.1.101:/home/pdg/share/nfs_share/rootfs,proto=tcp rw ip=192.168.1.103:192.168.1.101:192.168.1.1:255.255.255.0::eth0:off'
+setenv bootargs 'console=ttymxc0,115200 root=/dev/nfs nfsroot=192.168.1.104:/home/pdg/share/nfs_share/rootfs,proto=tcp,nfsvers=3 rw ip=192.168.1.103:192.168.1.104:192.168.1.1:255.255.255.0::eth0:off'
 ```
 
 ### 启动linux

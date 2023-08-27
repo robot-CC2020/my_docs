@@ -701,6 +701,12 @@ compatible            linux,phandle
 gpio-controller       name
 ```
 
+## 其他
+
++ cat /proc/interrupts
+
+  查看中断信息
+
 
 
 # 字符设备进阶
@@ -813,28 +819,35 @@ void poll_wait(struct file * filp, wait_queue_head_t * wait_address, poll_table 
 
 
 
-
-
 # 中断框架
 
 ## 基础知识
 
-### GIC
+硬件中断与linux中断框架：
 
-| GIC 中断源分类     | 中断号    | 描述                                            |
+![image-20230619012516471](.\linux 驱动.assets\image-20230619012516471.png)
+
+### GIC-400
+
+| 中断源分类         | 中断号    | 描述                                            |
 | ------------------ | --------- | ----------------------------------------------- |
-| SGI 软件通用中断   | 0 - 15    | 用于core之间相互通信                            |
+| SGI 软件触发中断   | 0 - 15    | 用于core之间相互通信                            |
 | PPI 私有外设中断   | 16 - 31   | 每个core私有的中断，如调度使用的tick中断        |
 | SPI 共享外设中断   | 32 - 1020 | 由外设触发，如按键、串口等中断，可分配给不同CPU |
 | LPI 基于消息的中断 |           | 不支持 GIC-V1 GIC-V2                            |
 
 每个CPU仅有四个中断接口：FIQ、IRQ、virtual FIQ、virtual IRQ
 
+GIC中断控制器主要由两部分组成，CPU模块接口和仲裁单元
 
+GIC中断处理过程：
 
-硬件中断与linux中断框架：
-
-![image-20230619012516471](.\linux 驱动.assets\image-20230619012516471.png)
+1. GIC检测到一个中中断发生，将该中断标记为pending状态
+2. 对于pending状态的中断，GIC仲裁单元会确定处理该中断的目标CPU
+3. 对于每一个CPU，仲裁单元会从pending状态中断中选择最高优先级的中断，发送到目标CPU的CPU模块接口上
+4. CPU模块接口会决定这个中断是否可以发送给CPU
+5. 当一个CPU进入中断之后，会读取GIC_IAR寄存器来响应此中断
+6. 当CPU完成中断，必须发送一个EOI信号给GIC控制器
 
 
 
@@ -1403,14 +1416,6 @@ int platform_get_irq_byname(
 
 在probe函数中，driver可以获得device的resource信息，即地址、中断号等等信息。
 
-
-
-
-
-
-
-
-
 # 并发与竞争
 
 ## 原子操作
@@ -1662,7 +1667,7 @@ mdev是基于uevent_helper机制，内核产生的uevent会调用uevent_helper�
 
 # 内核子系统
 
-**Linux 内核针对 PIN 的配置推出了 pinctrl 子系统，对 GPIO 的配置推出了 gpio 子系统。**
+## pinctrl 子系统
 
 pinctrl 子系统管理 200 个 IO 口的上拉下拉电阻，电流驱动能力，是硬件底层的存在。如果 pinctrl 将某个 pin  脚初始化成了普通 GPIO 而不是 IIC 或者 SPI，那么接下来我们就可以使用 gpio 子系统的 API 去操作 IO 口输出高低电平。
 
@@ -1677,8 +1682,6 @@ pinctrl 子系统管理 200 个 IO 口的上拉下拉电阻，电流驱动能力
 对于我们使用者来讲，只需要在设备树里面设置好某个 pin 的相关属性即可，其他的初始化工作均由 pinctrl 子系统来完成，pinctrl 子系统源码目录为 drivers/pinctrl。
 
 
-
-## pinctrl 子系统
 
 pinctrl 子系统也是一个标准的 platform 驱动，也存在相应的设备树节点、驱动代码、驱动probe函数等。
 
@@ -1817,12 +1820,6 @@ struct pinctrl_map {
 
 
 
-
-
-
-
-
-
 ## GPIO 子系统
 
 在实现驱动函数 read、write 时，可以通过操作寄存器的方式来控制GPIO，但这种方式太低效且不通用。
@@ -1882,3 +1879,121 @@ gpiod_put
 
 ```
 
+## input 子系统
+
+麦克风、键盘、鼠标，按键等输入设备可以使用input子系统编写驱动。
+
+input 子系统的设备属于字符设备的一种，其主设备号固定为13。
+
+### input 内核源码
+
+```c
+#include <linux/input.h>
+
+// 事件定义
+#define EV_SYN			0x00 // 同步事件
+#define EV_KEY			0x01 // 按键事件
+#define EV_REL			0x02 // 相对位移事件（如鼠标移动）
+#define EV_ABS			0x03 // 绝对位置事件（如触屏位置）
+#define EV_MSC			0x04 // 杂项设备事件
+#define EV_SW			0x05 // 开关事件
+#define EV_LED			0x11 // LED
+#define EV_SND			0x12 // sound声音
+#define EV_REP			0x14 // 可重复事件（如按键连按）
+#define EV_FF			0x15 // 压力事件（如压力传感器）
+#define EV_PWR			0x16 // 电源事件
+#define EV_FF_STATUS	0x17 // 压力状态事件
+#define EV_MAX			0x1f
+#define EV_CNT			(EV_MAX+1)
+
+// input 设备结构体
+struct input_dev {
+	const char *name; // 设备名称
+	const char *phys;
+	const char *uniq; // 设备唯一识别码（如果设备有）
+	struct input_id id;
+
+	unsigned long propbit[BITS_TO_LONGS(INPUT_PROP_CNT)];
+	// 使用位图来表示 支持的事件类型 和 各种事件
+	unsigned long evbit[BITS_TO_LONGS(EV_CNT)]; // 设备支持事件类型
+	unsigned long keybit[BITS_TO_LONGS(KEY_CNT)];
+	unsigned long relbit[BITS_TO_LONGS(REL_CNT)];
+	unsigned long absbit[BITS_TO_LONGS(ABS_CNT)];
+	unsigned long mscbit[BITS_TO_LONGS(MSC_CNT)];
+	unsigned long ledbit[BITS_TO_LONGS(LED_CNT)];
+	unsigned long sndbit[BITS_TO_LONGS(SND_CNT)];
+	unsigned long ffbit[BITS_TO_LONGS(FF_CNT)];
+	unsigned long swbit[BITS_TO_LONGS(SW_CNT)];
+
+	unsigned int hint_events_per_packet;
+
+	unsigned int keycodemax;
+	unsigned int keycodesize;
+	void *keycode;
+
+	int (*setkeycode)(struct input_dev *dev,
+			  const struct input_keymap_entry *ke,
+			  unsigned int *old_keycode);
+	int (*getkeycode)(struct input_dev *dev,
+			  struct input_keymap_entry *ke);
+
+	struct ff_device *ff;
+
+	unsigned int repeat_key;
+	struct timer_list timer;
+
+	int rep[REP_CNT];
+
+	struct input_mt *mt;
+
+	struct input_absinfo *absinfo;
+
+	unsigned long key[BITS_TO_LONGS(KEY_CNT)];
+	unsigned long led[BITS_TO_LONGS(LED_CNT)];
+	unsigned long snd[BITS_TO_LONGS(SND_CNT)];
+	unsigned long sw[BITS_TO_LONGS(SW_CNT)];
+
+	int (*open)(struct input_dev *dev);
+	void (*close)(struct input_dev *dev);
+	int (*flush)(struct input_dev *dev, struct file *file);
+	int (*event)(struct input_dev *dev, unsigned int type, unsigned int code, int value);
+
+	struct input_handle __rcu *grab;
+
+	spinlock_t event_lock;
+	struct mutex mutex;
+
+	unsigned int users;
+	bool going_away;
+
+	struct device dev;
+
+	struct list_head	h_list;
+	struct list_head	node;
+
+	unsigned int num_vals;
+	unsigned int max_vals;
+	struct input_value *vals;
+
+	bool devres_managed;
+};
+
+// 向内核申请一个 input 设备
+struct input_dev __must_check *input_allocate_device(void);
+// 向内核注册 input 设备，
+int __must_check input_register_device(struct input_dev *);
+
+// 函数用于上报事件， dev 为设备结构体指针
+// type 为事件类型，如EV_KEY
+// code 为事件码，也就是注册的按键，如 KEY_0 KEY_1
+// value 为事件值，比如 0 1 分别表示按下和松开
+void input_event(struct input_dev *dev, unsigned int type, unsigned int code, int value);
+
+// 调用上报事件函数之后，一定要使用同步函数，同步本质也是封装调用 input_event
+void input_sync(struct input_dev *dev);
+
+// 注销已经注册的 input 设备
+void input_unregister_device(struct input_dev *);
+// 释放 input 设备 结构体
+void input_free_device(struct input_dev *dev);
+```
