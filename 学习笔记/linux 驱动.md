@@ -1885,6 +1885,10 @@ gpiod_put
 
 input 子系统的设备属于字符设备的一种，其主设备号固定为13。
 
+使用input子系统之后就不用在 /class 和 /dev 创建文件，也不用注册file_operation，这些由input子系统完成，创建的设备文件在 /dev/input 目录下。
+
+应用层 读取设备文件的得到数据 为 二进制数据，用于表示事件， 可以用 linux/input.h 的结构体 struct input_event 来解析读取得到的二进制数据。
+
 ### input 内核源码
 
 ```c
@@ -1976,6 +1980,14 @@ struct input_dev {
 	struct input_value *vals;
 
 	bool devres_managed;
+};
+
+// 用于表示发生的事件的结构体，用于应用层解析事件
+struct input_event {
+	struct timeval time;
+	__u16 type;
+	__u16 code;
+	__s32 value;
 };
 
 // 向内核申请一个 input 设备
