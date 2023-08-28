@@ -628,7 +628,7 @@ int misc_deregister(struct miscdevice *misc);
 
   查看模块信息
 
-## 设备文件/文件夹
+## 总线/设备文件/文件夹
 
 ```shell
 ls /sys/class/ # 查看 class_create 创建的文件夹
@@ -1706,6 +1706,9 @@ pinctrl 的设备树可以分为 client 和sevice两部分。
 {
 	pinctrl-names = "default"; # 该属性表示设备状态，此处表示状态0为"default"
 	pinctrl-0 = <&pinctr_i2c2>; # 该属性表示状态0对应的引脚在 节点pinctr_i2c2 中配置
+	status = "okay";
+	...
+	led-gpios = <&gpio1 3 GPIO_ACTIVE_LOW> # GPIO1_IO03 低电平有效，该属性名字自定义
 }
 
 # 客户端例子2
@@ -1713,16 +1716,19 @@ pinctrl 的设备树可以分为 client 和sevice两部分。
 	pinctrl-names = "default", "wake up"; # 有两个状态
 	pinctrl-0 = <&pinctrl_hog_1 &pinctrl_hog_2>; # 状态0("default") 由两个节点配置
 	pinctrl-1 = <&pinctrl_hog_3>; # 状态1("wake up") 由节点pinctrl_hog_3配置
+	...
 }
 ```
 
 ```shell
 # 服务端例子 恩智浦
-# 以 IMX6ULL 为例，其IO复用相关节点有 
+# 以 IMX6ULL 为例，其IO复用相关节点有：
 # iomuxc: iomuxc@020e0000
 # iomuxc_snvs: iomuxc-snvs@02290000
 # gpr: iomuxc-gpr@020e4000
 # 分别于参考手册上的寄存器地址映射相对应。，位于 arch\arm\boot\dts\imx6ull.dtsi
+
+# 以上节点(如 iomuxc)的子节点(如 pinctrl_i2c2)会定义引脚的具体配置，其关系如下：
 &iomuxc{
 	# 该节点位于 arch\arm\boot\dts\imx6ull-alientek-emmc.dts，与具体开发板相关
 	# 把原本为 uart5 的两个引脚,复用成 i2c 的引脚
