@@ -1829,6 +1829,20 @@ BSP工程师会根据芯片实现GPIO子系统，GPIO 子系统封装了常见�
 ###  GPIO 设备树
 
 ```bash
+# gpio 控制器 来自linux 文档：
+# Documentation\devicetree\bindings\gpio\fsl-imx-gpio.txt
+gpio0: gpio@73f84000 {
+	compatible = "fsl,imx51-gpio", "fsl,imx35-gpio";
+	reg = <0x73f84000 0x4000>;
+	interrupts = <50 51>;
+	gpio-controller;
+	#gpio-cells = <2>;
+	interrupt-controller;
+	#interrupt-cells = <2>;
+};
+
+
+# gpio 使用节点
 / {
     led:led@1{
         compatible="led";  # 用于匹配驱动
@@ -1841,42 +1855,51 @@ BSP工程师会根据芯片实现GPIO子系统，GPIO 子系统封装了常见�
 
 ### gpio 内核代码
 
-GPIO的API分为两套接口，老一套的API以 gpio_ 作为前缀，用整数表示一个GPIO引脚；新的一套以 gpiod_ 作为前缀，用结构体 来表示一个GPIO引脚。
+GPIO的API分为两套接口:
+
++ 老一套的API以 gpio_ 作为前缀，用整数表示一个GPIO引脚
++ 新的一套以 gpiod_ 作为前缀，用 struct gpio_desc 结构体 来表示一个GPIO引脚。
 
 两套接口都有 获得GPIO引脚、释放GPIO引脚、设置输入输出、设置输出数据等功能。
 
 ```c
+#include <linux/of_gpio.h>
+// 从设备树节点中获取 GPIO号，是用于唯一标识GPIO引脚的标号
+// 失败返回错误码,返回值可用 gpio_is_valid 校验
+// 即使返回正确的的GPIO号，也不代表成功获取GPIO，需要调用gpio_request获取控制权
+int of_get_named_gpio(
+    struct device_node *np, // 设备节点
+    const char *propname, // name属性值
+    int index // 节点第index个 GPIO，只有一个则输入0
+);
+// 用于判断返回的 gpio号 是否为合法值
+bool gpio_is_valid(int number);
+
+/*************************************************************/
 #include <linux/gpio.h>
-
 // 请求这个gpio，如果其他地方请求了这个gpio且没有释放，那么会失败
-gpio_request
-
-gpio_direction_input
-gpio_direction_output
-gpio_get_value
-gpio_set_value
+int gpio_request(unsigned gpio, const char *label);
+// 把一个 gpio 设置为输入 
+int gpio_direction_input(unsigned gpio);
+// 把一个 gpio 设置为输出
+int gpio_direction_output(unsigned gpio, int value);
+// 获取gpio的 电平状态
+int gpio_get_value(unsigned gpio);
+// 设置gpio的输出电平
+void gpio_set_value(unsigned gpio, int value);
 // 释放GPIO
-gpio_free
-gpio_free_array
+void gpio_free(unsigned gpio);
+void gpio_free_array(const struct gpio *array, size_t num);
 ```
 
 ```c
 #include <linux/gpio/consumer.h>
-gpiod_get
-gpiod_get_array
-
-devm_gpiod_get
-devm_gpiod_get_array
-
-gpiod_direction_input
-gpiod_direction_output
-
-gpiod_get_value 
-gpiod_set_value
-
-gpio_free
-gpiod_put
-
+/* 新一套 API，使用结构体描述一个GPIO */
+struct gpio_desc *gpiod_get(
+    struct device *dev,
+    const char *con_id,
+    enum gpiod_flags flags
+);
 ```
 
 ## input 子系统
