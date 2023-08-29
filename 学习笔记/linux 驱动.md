@@ -664,7 +664,7 @@ ls /proc/device-tree # 查看设备树信息
 
 设备树部分源码如下：
 
-```htaccess
+```css
 	soc {
 		#address-cells = <1>;
 		#size-cells = <1>;
@@ -1712,40 +1712,43 @@ pinctrl 的设备树可以分为 client 和sevice两部分。
 
 其中client具备固定格式，而service因平台（瑞芯微、恩智浦……）的不同而不同。
 
-```shell
-# 客户端例子1
+```css
+/* 客户端例子1 */
 {
-	pinctrl-names = "default"; # 该属性表示设备状态，此处表示状态0为"default"
-	pinctrl-0 = <&pinctr_i2c2>; # 该属性表示状态0对应的引脚在 节点pinctr_i2c2 中配置
+	pinctrl-names = "default"; /* 该属性表示设备状态，此处表示状态0为"default" */
+	pinctrl-0 = <&pinctr_i2c2>; /* 该属性表示状态0对应的引脚在 节点pinctr_i2c2 中配置 */
 	status = "okay";
 	...
-	led-gpios = <&gpio1 3 GPIO_ACTIVE_LOW> # GPIO1_IO03 低电平有效，该属性名字自定义
+	led-gpios = <&gpio1 3 GPIO_ACTIVE_LOW> /* GPIO1_IO03 低电平有效，该属性名字自定义 */
 }
 
-# 客户端例子2
+/* 客户端例子2 */
 {
-	pinctrl-names = "default", "wake up"; # 有两个状态
-	pinctrl-0 = <&pinctrl_hog_1 &pinctrl_hog_2>; # 状态0("default") 由两个节点配置
-	pinctrl-1 = <&pinctrl_hog_3>; # 状态1("wake up") 由节点pinctrl_hog_3配置
+	pinctrl-names = "default", "wake up"; /* 有两个状态 */
+	pinctrl-0 = <&pinctrl_hog_1 &pinctrl_hog_2>; /* 状态0("default") 由两个节点配置 */
+	pinctrl-1 = <&pinctrl_hog_3>; /* 状态1("wake up") 由节点pinctrl_hog_3配置 */
 	...
 }
 ```
 
-```shell
-# 服务端例子 恩智浦
-# 以 IMX6ULL 为例，其IO复用相关节点有：
-# iomuxc: iomuxc@020e0000
-# iomuxc_snvs: iomuxc-snvs@02290000
-# gpr: iomuxc-gpr@020e4000
-# 分别于参考手册上的寄存器地址映射相对应。，位于 arch\arm\boot\dts\imx6ull.dtsi
+```css
+/* 
+ 服务端例子 恩智浦
+ 以 IMX6ULL 为例，其IO复用相关节点有：
+ iomuxc: iomuxc@020e0000
+ iomuxc_snvs: iomuxc-snvs@02290000
+ gpr: iomuxc-gpr@020e4000
+ 分别于参考手册上的寄存器地址映射相对应。，位于 arch\arm\boot\dts\imx6ull.dtsi
+*/
 
-# 以上节点(如 iomuxc)的子节点(如 pinctrl_i2c2)会定义引脚的具体配置，其关系如下：
+/* 以上节点(如 iomuxc)的子节点(如 pinctrl_i2c2)会定义引脚的具体配置，其关系如下 */
 &iomuxc{
-	# 该节点位于 arch\arm\boot\dts\imx6ull-alientek-emmc.dts，与具体开发板相关
-	# 把原本为 uart5 的两个引脚,复用成 i2c 的引脚
+	/* 该节点位于 arch\arm\boot\dts\imx6ull-alientek-emmc.dts，与具体开发板相关 */
+    /* 把原本为 uart5 的两个引脚,复用成 i2c 的引脚 */
     pinctrl_i2c2: i2c2grp {
-    	# 第一个宏(MX6UL_PAD_XXX) 为 5个数值，其定义位于 arch\arm\boot\dts\imx6ul-pinfunc.h
-    	# 后面的一个数值(0x400xxx) 表示电气属性，该节点内的值含义 可查手册
+    	/* 第一个宏(MX6UL_PAD_XXX) 为 5个数值 */
+        /* 宏定义位于 arch\arm\boot\dts\imx6ul-pinfunc.h */
+    	/* 后面的一个数值(0x400xxx) 表示电气属性，该节点内的值含义 可查手册 */
         fsl,pins = <
             MX6UL_PAD_UART5_TX_DATA__I2C2_SCL 0x4001b8b0
             MX6UL_PAD_UART5_RX_DATA__I2C2_SDA 0x4001b8b0
@@ -1753,11 +1756,11 @@ pinctrl 的设备树可以分为 client 和sevice两部分。
     };
 }
 
-# 服务端例子 瑞芯微
+/* 服务端例子 瑞芯微 */
 &iomuxc{
 	uart7m1_xfer:uart7m1-xfer{
 		rockchip.pins = 
-			# 把gpio3的 c5和c4引脚,设置成复用4功能，电气属性为上拉
+			/* 把gpio3的 c5和c4引脚,设置成复用4功能，电气属性为上拉 */
 			<3 RK_PC5 4 &pcfg_pull_up>,
 			<3 RK_PC4 4 &pcg_pull_up>;
 	}
@@ -1845,9 +1848,11 @@ BSP工程师会根据芯片实现GPIO子系统，GPIO 子系统封装了常见�
 
 ###  GPIO 设备树
 
-```bash
-# gpio 控制器 来自linux 文档：
-# Documentation\devicetree\bindings\gpio\fsl-imx-gpio.txt
+```css
+/*
+ * gpio 控制器 来自linux 文档：
+ * Documentation\devicetree\bindings\gpio\fsl-imx-gpio.txt
+ */
 gpio0: gpio@73f84000 {
 	compatible = "fsl,imx51-gpio", "fsl,imx35-gpio";
 	reg = <0x73f84000 0x4000>;
@@ -1858,12 +1863,13 @@ gpio0: gpio@73f84000 {
 	#interrupt-cells = <2>;
 };
 
-
-# gpio 使用节点
+/* gpio 使用节点 */
 / {
     led:led@1{
-        compatible="led";  # 用于匹配驱动
-        gpios=<&gpio0 RK_PB7 1> # cell的个数由gpio控制器(gpio0)指定，此处为2（引脚+默认电平）
+        compatible="led"; /* 可用于匹配驱动 */
+        /* 属性名(my_gpios)可以自定义，但要与驱动中of_get_named_gpio参数一致 */
+        /* cell的个数由gpio控制器(gpio0)指定，此处对应值为2：引脚 + 默认电平 */
+        my_gpios=<&gpio0 RK_PB7 1>
     }
 };
 ```
@@ -1886,7 +1892,7 @@ GPIO的API分为两套接口:
 // 即使返回正确的的GPIO号，也不代表成功获取GPIO，需要调用gpio_request获取控制权
 int of_get_named_gpio(
     struct device_node *np, // 设备节点
-    const char *propname, // name属性值
+    const char *propname, // 属性名称
     int index // 节点第index个 GPIO，只有一个则输入0
 );
 // 用于判断返回的 gpio号 是否为合法值
