@@ -606,29 +606,37 @@ int misc_deregister(struct miscdevice *misc);
 
 ## 内核模块
 
-+ insmod
+```bash
+insmod xxx.ko # 加载内核模块
+insmod xxx.ko a=1 array=1,2,3 str=hello # 带参数地加载内核模块
+lsmod # 查看已经载入的模块，也可以 cat /proc/modules
+rmmod xxx.ko # 移除已经加载的内核模块
 
-  insmod xxx.ko，加载内核模块
+modinfo --help # 查看模块的作者、描述 等信息
+	Usage: modinfo [-adlpn0] [-F keyword] MODULE
+        -a              Shortcut for '-F author'
+        -d              Shortcut for '-F description'
+        -l              Shortcut for '-F license'
+        -p              Shortcut for '-F parm'
+        -F keyword      Keyword to look for
+        -0              Separate output with NULs
 
-  insmod xxx.ko a=1 array=1,2,3 str=hello 带参数地加载内核模块
+modprobe --help # 对默认目录下的模块 进行 加载 等操作
+	Usage: modprobe [-alrqvsDb] MODULE [SYMBOL=VALUE]...
+        -a      Load multiple MODULEs
+        -l      List (MODULE is a pattern)
+        -r      Remove MODULE (stacks) or do autoclean
+        -q      Quiet
+        -v      Verbose
+        -s      Log to syslog
+        -D      Show dependencies
+        -b      Apply blacklist to module names too
 
-+ rmmod
+```
 
-  rmmod xxx.ko，移除已经加载的内核模块 
 
-+ modprob
 
-  modprob xxx.ko 加载内核模块同时依赖的模块也一同加载
-
-+ lsmod
-
-  查看已经载入的模块，也可以 cat /proc/modules
-
-+ modinfo
-
-  查看模块信息
-
-## 总线/设备文件/文件夹
+## 总线/设备文件
 
 ```shell
 ls /sys/class/ # 查看 class_create 创建的文件夹
@@ -636,8 +644,8 @@ ls /sys/class/ # 查看 class_create 创建的文件夹
 ls /dev/ # 查看 device_create 创建的文件(设备节点)，该文件可以使用 open close操作
 ls -al /dev/xxx # 可以看出设备类型，主设备号、次设备号
 
-ls /sys/bus/platform/devices # 查看加载的平台总线 设备 文件夹
-ls /sys/bus/platform/drivers # 查看加载的平台总线 驱动 文件夹
+ls /sys/bus/xxx/devices # 查看加载的各种总线(i2c platform..)设备 文件夹形式
+ls /sys/bus/xxx/drivers # 查看加载的各种总线(i2c platform..)驱动 文件夹形式
 
 cat /proc/devices # 查看所有系统 已经使用设备号
 cat /proc/(pid)/maps # 查看进程使用的 虚拟地址
@@ -647,9 +655,12 @@ cat /proc/(pid)/maps # 查看进程使用的 虚拟地址
 
 ## 设备树信息
 
-目录 /sys/firmware/devicetree，所有设备树节点都以文件夹形式存在。
+```bash
+ls /sys/firmware/devicetree/base # 查看设备树信息
+ls /proc/device-tree # 查看设备树信息
+```
 
-可在此查看所有节点、节点属性及其取值。
+所有设备树节点都以文件夹形式存在，可在此查看所有节点、节点属性及其取值。
 
 设备树部分源码如下：
 
