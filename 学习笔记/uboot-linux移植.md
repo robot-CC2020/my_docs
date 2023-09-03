@@ -112,7 +112,7 @@ u-boot.imx 文件就是添加头部以后的 u-boot.bin，u-boot.imx 就是我�
 
 
 
-## 开发板移植uboot
+## alpha 开发板移植uboot
 
 添加配置文件 mx6ull_alientek_emmc_defconfig
 
@@ -127,6 +127,40 @@ u-boot.imx 文件就是添加头部以后的 u-boot.bin，u-boot.imx 就是我�
 修改uboot图形界面配置文件 arch/arm/cpu/armv7/mx6/Kconfig
 
 修改mx6ull_alientek_emmc.h 和 mx6ull_alientek_emmc.c 文件内的LCD、网卡驱动、打印信息等。
+
+
+
+## debug 调试
+
+### 调试手段
+
++ 调试日志与打印
+
+  在 include/log.h 中 定义 DEBUG 宏，重新编译u-boot打开日志。
+
+  在源码中添加 debug 、 printf 、 puts 等函数添加日志跟踪。
+
++ 符号与地址映射
+
+  查看文件 u-boot.map ，查看符号、地址、源码 的对应信息。
+
++ 添加自定义命令
+
+  在源码中 cmd/boot.c 目录中添加源码，可以添加自定义命令。
+
+### 常见问题
+
++ 编译与内存加载地址错误，导致程序无法执行
+
+  不同板子在编译或者加载uboot的时候，其地址是不同的，需要看手册替换。 
+
++ 未关闭cache和中断，导致程序卡死或出错
+
+  某些程序执行时，如果未关闭cache或中断，会导致许多问题。
+
++ 烧写的文件过大，导致烧录不成功
+
+  打开DEBUG，添加代码等行为都会导致bin大小变大。如果大于分区限制，会导致烧写不成功。需要更换文件，重新上电后烧录。
 
 
 
@@ -282,7 +316,19 @@ boot
 
 ![768f9216f07fa96d88645210acd4af3b](.\uboot-linux移植.assets\768f9216f07fa96d88645210acd4af3b.png)
 
+# uboot 相关知识
 
+## 启动阶段
+
+U-BOOT分为两个阶段，第一阶段是(~/cpu/xxx/start.S中)在非易失存储器(如 flash)上运行，完成对硬件的初始化，包括看门狗，中断缓存等，并且负责把代码搬移到RAM中(在搬移的时候检查自身代码是否在RAM中)，然后完成C程序运行所需要环境的建立，包括堆栈的初始化等,最后执行一句跳转指令到 _start_armboot，进入第二阶段。
+
+## 链接与地址运行
+
+在顶层的Makefile文件中（约160行），因为-Ttext $(TEXT_BASE)命令的使用,链接器把UBOOT从地址 TEXT_BASE 开始链接。
+
+在第一阶段中，所有使用的目标地址寻址都是使用当前PC值加减偏移量的方法，所以把UBOOT烧写到0地址开始的FLASH中，不影响第一阶段的正确执行。
+
+uboot 会把自己拷贝到链接地址指定的内存位置上去，此时代码在内存中的实际位置 等于 代码链接时确定的位置，所以第二阶段的代码可以正常执行。 
 
 # linux
 
