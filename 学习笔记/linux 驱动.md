@@ -562,7 +562,7 @@ void device_destroy(struct class *cls, dev_t devt);
 
 struct miscdevice  {
 	int minor;			// 次设备号，赋值为宏 MISC_DYNAMIC_MINOR ，表示系统自动分配
-	const char *name;	// 设备名称
+	const char *name;	// 设备名称，也即是 /dev/ 目录下文件名称
 	const struct file_operations *fops;	// 文件操作集合
 	struct list_head list;
 	struct device *parent;
@@ -1343,13 +1343,15 @@ void platform_device_unregister(struct platform_device *);
 
 ```c
 #include <linux/platform_device.h>
+
+// 用于表示一个平台驱动
 struct platform_driver {
 	int (*probe)(struct platform_device *); // 与设备匹配之后会执行，必须要实现
 	int (*remove)(struct platform_device *); // 移除设备时会执行
 	void (*shutdown)(struct platform_device *); // 关闭设备时调用
 	int (*suspend)(struct platform_device *, pm_message_t state); // 进入睡眠时调用
 	int (*resume)(struct platform_device *); // 从睡眠模式恢复时调用
-	struct device_driver driver;	// 设备共同属性，里面也有名字，函数指针，匹配优先级比id_table低
+	struct device_driver driver;	// 里面也有名字，函数指针，匹配优先级比id_table低
 	const struct platform_device_id *id_table; // 优先匹配id_table名字
 	bool prevent_deferred_probe;
 };
@@ -1360,18 +1362,16 @@ struct platform_device_id {
 	kernel_ulong_t driver_data;
 };
 
+// platform_driver 内部有个成员 struct device_driver driver;
+// struct device_driver 的作用类似于 struct platform_driver 的基类
 struct device_driver {
 	const char		*name; // 驱动的名字，用于与设备名字匹配
 	struct bus_type	*bus; // 标识本驱动的设备属于哪一种总线
-
 	struct module	*owner; // 模块 拥有者
-	const char		*mod_name;	/* used for built-in modules */
-
-	bool suppress_bind_attrs;	/* disables bind/unbind via sysfs */
-
+	const char		*mod_name;
+	bool suppress_bind_attrs;
 	const struct of_device_id	*of_match_table;
 	const struct acpi_device_id	*acpi_match_table;
-
 	int (*probe) (struct device *dev);
 	int (*remove) (struct device *dev);
 	void (*shutdown) (struct device *dev);
@@ -1391,9 +1391,112 @@ void platform_driver_unregister(struct platform_driver *);
 
 ```
 
+## platform_driver 注册过程
+
+```c
+
+static int platform_drv_probe(struct device *_dev)
+{
+	struct platform_driver *drv = to_platform_driver(_dev->driver);
+	struct platform_device *dev = to_platform_device(_dev);
+	int ret;
+
+	ret = of_clk_set_defaults(_dev->of_node, false);
+	if (ret < 0)
+		return ret;
+
+	ret = dev_pm_domain_attach(_dev, true);
+	if (ret != -EPROBE_DEFER) {
+		ret = drv->probe(dev); // 调用回调
+		if (ret)
+			dev_pm_domain_detach(_dev, true);
+	}
+
+	if (drv->prevent_deferred_probe && ret == -EPROBE_DEFER) {
+		dev_warn(_dev, "probe deferral not supported\n");
+		ret = -ENXIO;
+	}
+
+	return ret;
+}
+
+int __platform_driver_register(struct platform_driver *drv,
+				struct module *owner)
+{
+	drv->driver.owner = owner;
+	drv->driver.bus = &platform_bus_type; // 总线类型为平台总线
+	if (drv->probe)
+		drv->driver.probe = platform_drv_probe;
+	if (drv->remove)
+		drv->driver.remove = platform_drv_remove;
+	if (drv->shutdown)
+		drv->driver.shutdown = platform_drv_shutdown;
+
+	return driver_register(&drv->driver);
+}
+EXPORT_SYMBOL_GPL(__platform_driver_register); // 导出符号
+```
+
+如果 platform_driver 注册了 probe remove shutdown 中的某一个，那么platform_driver 在注册的时候，其成员 device_driver 中对应的回调也会被初始化成。
+
+## driver与device的匹配
+
+```c
+/* drivers/base/platform.c */
+
+static const struct dev_pm_ops platform_dev_pm_ops = {
+	.runtime_suspend = pm_generic_runtime_suspend,
+	.runtime_resume = pm_generic_runtime_resume,
+	USE_PLATFORM_PM_SLEEP_OPS
+};
+
+struct bus_type platform_bus_type = {
+	.name		= "platform",
+	.dev_groups	= platform_dev_groups,
+	.match		= platform_match, // 平台总线匹配逻辑 
+	.uevent		= platform_uevent,
+	.pm		= &platform_dev_pm_ops,
+};
+EXPORT_SYMBOL_GPL(platform_bus_type);
 
 
-## driver中的probe函数
+/* include/linux/of_device.h */
+static inline int of_driver_match_device(struct device *dev,
+					 const struct device_driver *drv)
+{
+	return of_match_device(drv->of_match_table, dev) != NULL;
+}
+
+static int platform_match(struct device *dev, struct device_driver *drv)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct platform_driver *pdrv = to_platform_driver(drv);
+
+	/* 如果 平台设备 有 driver_override, 则仅考虑 匹配 device_driver的 name */
+	if (pdev->driver_override)
+		return !strcmp(pdev->driver_override, drv->name);
+
+	/* 尝试匹配 struct device_driver 结构体的 of_match_table 表，
+	   以及设备树节点 compatible 属性，若成功则结束匹配 */
+	if (of_driver_match_device(dev, drv))
+		return 1;
+
+	/* Then try ACPI style match */
+	if (acpi_driver_match_device(dev, drv))
+		return 1;
+
+	/* 如果 平台驱动 存在id_table表，则仅考虑与 平台设备的name 比较 */
+	if (pdrv->id_table)
+		return platform_match_id(pdrv->id_table, pdev) != NULL;
+
+	/*  匹配平台设备的 name 以及 struct device_driver 结构体的 name */
+	return (strcmp(pdev->name, drv->name) == 0);
+}
+```
+
+
+
+### probe函数以及实现常用内核API
 
 ```c
 // 匹配成功会调用的probe函数
@@ -1405,12 +1508,12 @@ struct resource *platform_get_resource(
     unsigned int,	// 匹配资源里面的 flags字段，表示资源类型
     unsigned int	// 
 );
-
+// 获取平台设备的中断资源
 int platform_get_irq(
     struct platform_device *,
     unsigned int
 );
-
+// 
 struct resource *platform_get_resource_byname(
     struct platform_device *,
     unsigned int,
@@ -1606,15 +1709,15 @@ dtc -I dtb -0 dts -o xxx.dts xxx.dtb
 
 uboot启动内核时会把设备树内存地址传递给linux内核。
 
-内核会把dtb转换成 device_node ，部分 device_node 会转换成 platform_device（平台总线模型的device部分）。 
+内核会把dtb每一个节点都转换成 device_node ，部分 device_node 会转换成 platform_device（平台总线模型的device部分）。 
 
 相关内核函数： of_platform_default_populate_init
 
 转换成 platform_device 的节点，要满足以下条件：
 
-1. 节点含有有 compatible 属性。
-2. 节点的 compatible 属性不能包含"arm,primecell" 任意一个值。（会转换成amba设备）
-3. 父节点为根节点，或者父节点的 compatible 属性包含"simple-bus", "simple-mfd", "isa"其中之一。
+1. 节点含有有 compatible 属性，且值不包括"arm,primecell" 任意一个值。（会转换成amba设备）
+2. 父节点为根节点，或者父节点的 compatible 属性包含"simple-bus", "simple-mfd", "isa","arm,amba-bus" 其中之一。
+3. 父节点不是 I2C，SPI。
 
 
 
@@ -1676,7 +1779,7 @@ mdev是基于uevent_helper机制，内核产生的uevent会调用uevent_helper�
 
 
 
-# 内核子系统
+# pintctrl与gpio子系统
 
 ## pinctrl 子系统
 
@@ -1925,7 +2028,7 @@ struct gpio_desc *gpiod_get(
 );
 ```
 
-## input 子系统
+# input 子系统
 
 麦克风、键盘、鼠标，按键等输入设备可以使用input子系统编写驱动。
 
@@ -1935,7 +2038,7 @@ input 子系统的设备属于字符设备的一种，其主设备号固定为13
 
 应用层 读取设备文件的得到数据 为 二进制数据，用于表示事件， 可以用 linux/input.h 的结构体 struct input_event 来解析读取得到的二进制数据。
 
-### input 内核源码
+## input 相关内核源码
 
 ```c
 #include <linux/input.h>

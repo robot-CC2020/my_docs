@@ -110,6 +110,10 @@ u-boot.bin 就是编译出来的 uboot 二进制文件。uboot是个裸机程序
 
 u-boot.imx 文件就是添加头部以后的 u-boot.bin，u-boot.imx 就是我们最终要烧写到开发板中的 uboot 镜像文件。
 
+### 编译配置
+
+make 命令 后面加上配置文件名时，会把configs文件夹下的对应文件拷贝到当前目录的  .config 文件
+
 
 
 ## alpha 开发板移植uboot
@@ -407,7 +411,7 @@ make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- imx6ull-alientek-emmc.dtb
 
 
 
-## linux启动
+## linux启动过程
 
 根据链接脚本 arch/arm/kernel/vmlinux.lds，找到linux入口函数 ENTRY(stext)。
 
@@ -765,7 +769,39 @@ static noinline void __init kernel_init_freeable(void)
 
 >tar.bz2 文件 需要在 linux下使用  tar -jxvf 解压，在windows 下使用360解压会出错 
 
+## linux 与机器的匹配检查
 
+在没有使用设备树之前，uboot会向linux内核传递一个machine id 的值，linux会根据machine id 判断是否支持该机器。
+
+使用设备树之后，linux 根据设备树根节点下的 compatible 属性来判断是否支持该机器。
+
+不管是哪一种方式，linux内核都会使用 struct machine_desc 来描述机器。linux内核中会维护支持的机器信息，内核代码中使用宏来定义 struct machine_desc 结构体。使用设备ID的结构体 使用 MACHINE_START 和 MACHINE_END 宏，使用设备树的结构体 使用 DT_MACHINE_START 和 MACHINE_END 宏。
+
+```c
+/*
+ * Set of macros to define architecture features.  This is built into
+ * a table by the linker.
+ */
+#define MACHINE_START(_type,_name)			\
+static const struct machine_desc __mach_desc_##_type	\
+ __used							\
+ __attribute__((__section__(".arch.info.init"))) = {	\
+	.nr		= MACH_TYPE_##_type,		\
+	.name		= _name,
+
+#define MACHINE_END				\
+};
+
+#define DT_MACHINE_START(_name, _namestr)		\
+static const struct machine_desc __mach_desc_##_name	\
+ __used							\
+ __attribute__((__section__(".arch.info.init"))) = {	\
+	.nr		= ~0,				\
+	.name		= _namestr,
+
+```
+
+ 
 
 # 根文件系统
 
