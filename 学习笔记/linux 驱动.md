@@ -1977,16 +1977,17 @@ gpio0: gpio@73f84000 {
 };
 ```
 
-
-
 ### gpio 内核代码
 
 GPIO的API分为两套接口:
 
-+ 老一套的API以 gpio_ 作为前缀，用整数表示一个GPIO引脚
-+ 新的一套以 gpiod_ 作为前缀，用 struct gpio_desc 结构体 来表示一个GPIO引脚。
-
-两套接口都有 获得GPIO引脚、释放GPIO引脚、设置输入输出、设置输出数据等功能。
+| 差异项       | 新接口                  | 老接口            |
+| ------------ | ----------------------- | ----------------- |
+| 接口前缀     | gpiod_                  | gpio_             |
+| 引脚句柄     | struct gpio_desc 结构体 | 整数值            |
+| 输出控制     | 逻辑电平                | 物理电平          |
+| 设备树属性名 | xxx-gpios               | xxx（无格式限制） |
+|              |                         |                   |
 
 ```c
 #include <linux/of_gpio.h>
@@ -2021,11 +2022,21 @@ void gpio_free_array(const struct gpio *array, size_t num);
 ```c
 #include <linux/gpio/consumer.h>
 /* 新一套 API，使用结构体描述一个GPIO */
+// 请求gpio
 struct gpio_desc *gpiod_get(
-    struct device *dev,
-    const char *con_id,
-    enum gpiod_flags flags
+    struct device *dev, // 可来自 platform_device 的 dev成员
+    const char *con_id // 为属性名(xxx-gpios)中的xxx
 );
+// 把一个 gpio 设置为输入 
+int gpiod_direction_input(struct gpio_desc *desc);
+// 把一个 gpio 设置为输出
+int gpiod_direction_output(struct gpio_desc *desc, int value);
+// 获取gpio的 电平状态
+int gpiod_get_value(struct gpio_desc *desc);
+// 设置gpio的输出电平
+void gpiod_set_value(struct gpio_desc *desc, int value);
+// 释放gpio
+void gpiod_put(struct gpio_desc *desc);
 ```
 
 # input 子系统
