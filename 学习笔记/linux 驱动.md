@@ -418,14 +418,17 @@ void cdev_del(struct cdev *);
 2. 初始化 struct cdev 结构体，绑定 file_operations
 3. 获取设备号
 4. 调用cdev_init和cdev_add添加字符设备
+5. 可创建class或者device文件
 
 在模块卸载时 注销字符设备：
 
-1. 注销分配的设备号
-2. 调用cdev_del删除字符设备
-3. 如果 struct cdev 为动态分配，需要释放
+1. 销毁class和device文件
+2. 调用cdev_del删除字符设备（会释放cdev_alloc分配的内存）
+3. 注销获取的设备号
 
 次设备号怎么使用完全由驱动程序决定，一般是用来选择某个设备，也可以和主设备号结合，再用来找到其他驱动程序。
+
+不论是添加字符设备(cdev_add)、创建设备文件(device_create)、销毁设备文件(device_destory) 都需要关联设备号
 
 ## 文件操作
 
@@ -826,11 +829,17 @@ void poll_wait(struct file * filp, wait_queue_head_t * wait_address, poll_table 
 
 ## linux 内核定时器
 
+### 内核节拍数
+
+内核节拍数可以通过图形化界面来配置，频率一般是100-1000HZ，linux会使用变量jiffies 或者 jiffies_64 记录系统上电运行的节拍数。注意，当节拍为1000时，32位的jiffies大约50天就发生一次绕回。
+
+### 定时器使用
+
 内核定时器精度不高，不能作为高精度定时器使用。内核定时器不是周期运行的，超时后会关闭，如果需要周期运行，需要在定时处理中重新打开定时器。
 
+Linux内核使用 timer_list 结构体表示内核定时器， timer_list 定义在文件 include/linux/timer.h 中
 
-
-# 中断框架
+# 中断框架 
 
 ## 基础知识
 
@@ -1889,14 +1898,19 @@ struct pinctrl_desc {
 // 根据构建好的 pinctrl_desc 生成一个设备
 
 // 用于获取设备树中自己用 pinctrl 建立的节点的句柄
-devm_pinctrl_get
+struct pinctrl *devm_pinctrl_get(struct device *dev);
 
 // 用于选择其中一个 pinctrl 的状态
-pinctrl_lookup_state
+struct pinctrl_state * pinctrl_lookup_state(
+    struct pinctrl *p,
+    const char *name
+);
 
 // 在上一步获取到某个状态以后，这一步真正设置为这个状态
-pinctrl_select_stat
-
+int pinctrl_select_state(
+    struct pinctrl *p,
+    struct pinctrl_state *s
+);
 ```
 
 pinctrl_desc 是内核定义的结构体，在芯片厂家的驱动代码，如 pinctrl的驱动probe 函数中，往往把它封装一层。
