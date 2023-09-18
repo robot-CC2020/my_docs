@@ -426,6 +426,8 @@ void cdev_del(struct cdev *);
 2. 调用cdev_del删除字符设备（会释放cdev_alloc分配的内存）
 3. 注销获取的设备号
 
+
+
 次设备号怎么使用完全由驱动程序决定，一般是用来选择某个设备，也可以和主设备号结合，再用来找到其他驱动程序。
 
 不论是添加字符设备(cdev_add)、创建设备文件(device_create)、销毁设备文件(device_destory) 都需要关联设备号
@@ -2183,3 +2185,21 @@ void input_unregister_device(struct input_dev *);
 // 释放 input 设备 结构体
 void input_free_device(struct input_dev *dev);
 ```
+
+# LCD屏幕驱动
+
+## framebuffer帧缓存
+
+framebuffer在内核中使用 结构体 struct fb_info 表示，LCD屏幕驱动的重点就是：
+
+1. 初始化 struct fb_info 的各个成员变量。
+2. 使用 register_framebuffer 函数向内核注册 struct fb_info 结构体。
+3. 卸载驱动时调用 unregister_framebuffer 注销结构体。 
+
+
+
+## NXP原厂LCD驱动分析
+
+源码文件位于 drivers/video/fbdev/mxsfb.c
+
+NXP定义了结构体 struct mxsfb_info，其包含了内核定义结构体 struct fb_info。 
