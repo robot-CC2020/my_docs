@@ -2203,3 +2203,7 @@ framebuffer在内核中使用 结构体 struct fb_info 表示，LCD屏幕驱动�
 源码文件位于 drivers/video/fbdev/mxsfb.c
 
 NXP定义了结构体 struct mxsfb_info，其包含了内核定义结构体 struct fb_info。 
+
+mxsfb_probe 函数会调用 mxsfb_init_fbinfo 来初始化 fb_info，其中fb_info 中 fbops 成员 表示相关的操作集。mxsfb_probe 函数除了初始化和注册 fb_info 之外， 还初始化 LCDIF 控制器。
+
+设备树节点名称：lcdif。
