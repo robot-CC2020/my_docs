@@ -654,6 +654,7 @@ ls /sys/bus/xxx/drivers # 查看加载的各种总线(i2c platform..)驱动 文�
 
 cat /proc/devices # 查看所有系统 已经使用设备号
 cat /proc/(pid)/maps # 查看进程使用的 虚拟地址
+cat /proc/interrupts # 查看注册的中断
 ```
 
 
@@ -833,13 +834,54 @@ void poll_wait(struct file * filp, wait_queue_head_t * wait_address, poll_table 
 
 ### 内核节拍数
 
-内核节拍数可以通过图形化界面来配置，频率一般是100-1000HZ，linux会使用变量jiffies 或者 jiffies_64 记录系统上电运行的节拍数。注意，当节拍为1000时，32位的jiffies大约50天就发生一次绕回。
+内核节拍数可以通过图形化界面来配置，频率一般是100-1000HZ，linux会使用变量jiffies 或者 jiffies_64 记录系统上电运行的节拍数。注意，当节拍为1000时，32位的 jiffies 大约50天就发生一次绕回。
 
 ### 定时器使用
 
 内核定时器精度不高，不能作为高精度定时器使用。内核定时器不是周期运行的，超时后会关闭，如果需要周期运行，需要在定时处理中重新打开定时器。
 
 Linux内核使用 timer_list 结构体表示内核定时器， timer_list 定义在文件 include/linux/timer.h 中
+
+```c
+struct timer_list {
+     struct list_head entry;
+     unsigned long expires; 	/* 定时器超时时间，单位是节拍数 */
+     struct tvec_base *base;
+     void (*function)(unsigned long); 	/* 定时处理函数 */
+     unsigned long data; 	/* 要传递给 function 函数的参数 */
+     int slack;
+};
+
+/* API函数 */
+
+// 定义之后一定要使用 init 函数初始化，初始化之后才设置结构体成员
+void init_timer(struct timer_list *timer);
+
+// 设置完毕之后，向内核注册定时器并激活，注册之后的定时器才会运行
+void add_timer(struct timer_list *timer);
+
+// 修改定时值，如果定时器还没有激活的话，mod_timer 函数会激活定时器
+int mod_timer(struct timer_list *timer, unsigned long expires);
+
+// 立刻删除定时器，调用者需要等待其他处理器的定时处理器函数退出
+// 返回值：0，定时器还没被激活；1，定时器已经激活。
+int del_timer(struct timer_list * timer);
+
+// 会等待其他处理器使用完定时器后 删除定时器。不能在中断上下文中使用。
+// 返回值：0，定时器还没被激活；1，定时器已经激活。
+int del_timer_sync(struct timer_list *timer);
+
+/* jiffies 转换函数 */
+int jiffies_to_msecs(const unsigned long j);
+int jiffies_to_usecs(const unsigned long j);
+u64 jiffies_to_nsecs(const unsigned long j);
+
+long msecs_to_jiffies(const unsigned int m);
+long usecs_to_jiffies(const unsigned int u);
+unsigned long nsecs_to_jiffies(u64 n);
+```
+
+
 
 # 中断框架 
 
@@ -885,48 +927,77 @@ Linux 系统中有硬件中断，也有软件中断。对硬件中断的处理�
 ## 中断相关驱动API
 
 ```c
-#include <linux/interrput.h>
+#include <linux/interrupt.h>
+#include <linux/of_irq.h>
+
+// 中断标志位枚举
+enum {
+	IRQ_TYPE_NONE		= 0x00000000,
+	IRQ_TYPE_EDGE_RISING	= 0x00000001,
+	IRQ_TYPE_EDGE_FALLING	= 0x00000002,
+	IRQ_TYPE_EDGE_BOTH	= (IRQ_TYPE_EDGE_FALLING | IRQ_TYPE_EDGE_RISING),
+	IRQ_TYPE_LEVEL_HIGH	= 0x00000004,
+	IRQ_TYPE_LEVEL_LOW	= 0x00000008,
+	IRQ_TYPE_LEVEL_MASK	= (IRQ_TYPE_LEVEL_LOW | IRQ_TYPE_LEVEL_HIGH),
+	IRQ_TYPE_SENSE_MASK	= 0x0000000f,
+	IRQ_TYPE_DEFAULT	= IRQ_TYPE_SENSE_MASK,
+
+	IRQ_TYPE_PROBE		= 0x00000010,
+
+	IRQ_LEVEL		= (1 <<  8),
+	IRQ_PER_CPU		= (1 <<  9),
+	IRQ_NOPROBE		= (1 << 10),
+	IRQ_NOREQUEST		= (1 << 11),
+	IRQ_NOAUTOEN		= (1 << 12),
+	IRQ_NO_BALANCING	= (1 << 13),
+	IRQ_MOVE_PCNTXT		= (1 << 14),
+	IRQ_NESTED_THREAD	= (1 << 15),
+	IRQ_NOTHREAD		= (1 << 16),
+	IRQ_PER_CPU_DEVID	= (1 << 17),
+	IRQ_IS_POLLED		= (1 << 18),
+};
 
 // 中断返回值 枚举
 enum irqreturn {
 	IRQ_NONE		= (0 << 0),		// 中断与本设备无关
-	IRQ_HANDLED		= (1 << 0),		// 本设备的中断发生了
+	IRQ_HANDLED		= (1 << 0),		// 本设备的中断处理了
 	IRQ_WAKE_THREAD		= (1 << 1),	// 请求唤醒处理线程
 };
 typedef enum irqreturn irqreturn_t;
 
 // 中断处理函数原型（如果任务较长，则在此函数内创建中断下半部分）
-typedef irqreturn_t (*irq_handler_t)(int, void *);
+typedef irqreturn_t (*irq_handler_t)(int irq, void *dev);
 
-// 设备向内核注册中断处理函数 API
+// 根据设备树节点获取 中断号
+unsigned int irq_of_parse_and_map(
+    struct device_node *node,
+    int index
+);
+
+// 根据原理图确定引脚名，再查阅SOC手册可计算 gpio号，或者使用gpio子系统确定gpio号
+// 输入 gpio号 ，返回软件中断号
+int gpio_to_irq(unsigned int gpio);
+// 输入 gpiod ，返回软件中断号
+int gpiod_to_irq(const struct gpio_desc *desc);
+
+// 设备向内核注册中断处理函数 API，由于可能会导致睡眠，不可以在中断上下文使用
 int request_irq(
     unsigned int irq,  		// 软件中断号
     irq_handler_t handler, 	// 注册的中断处理函数
     unsigned long flags, 	// 中断标志，如 共享中断、电平触发、边缘触发等
     const char *name, 		// 自定义的中断名字，可在 /proc/irq 中看到
-    void *dev 				// 传给中断处理函数(handler)的 参数，如果flags设置了共享中断，则该参数不可为NULL，用来区分设备；
+    void *dev 				// 传给中断处理函数(handler)的 参数
+    						// 如果flags设置了共享中断，则该参数不可为NULL，用来区分设备
     						// 如果flags不为共享中断，该参数可以为 NULL
 );
 
 // 释放中断资源 API
 void free_irq(
     unsigned int, 		// 软件中断号
-    void *				// 如果为共享中断，该参数用来区分设备
+    void *				// 必须与request的时候一致！
 );
-```
-
-获取中断号，以GPIO为例子：
-
-```c
-#include <linux/gpio.h>
-
-// 根据原理图确定引脚名，再查阅SOC手册计算 gpio数值
-// 输入 gpio数值 获取软件中断号
-int gpio_to_irq(unsigned int gpio);
 
 ```
-
-
 
 ## 中断内核源码
 
@@ -1071,7 +1142,8 @@ soc {
     ranges;
 }
 
-gpio1: gpio@0209c000 {					// 本节点没有指定 interrupt-parent属性，继承上级节点（gpio1->aips1->soc）的值
+gpio1: gpio@0209c000 {
+    // 本节点没有指定 interrupt-parent属性，继承上级节点（gpio1->aips1->soc）的值
     compatible = "fsl,imx6ul-gpio", "fsl,imx35-gpio";
     reg = <0x0209c000 0x4000>;
     interrupts = <GIC_SPI 66 IRQ_TYPE_LEVEL_HIGH>,
