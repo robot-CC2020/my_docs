@@ -754,16 +754,27 @@ typedef struct __wait_queue wait_queue_t;
 
 
 // 定义并初始化 等待队列头
-DECLARE_WAIT_QUEUE_HEAD(wq);
+DECLARE_WAIT_QUEUE_HEAD(wq); // wq 类型为 wait_queue_head_t 类型
 
-// 如果条件为假，那么线程会进入不可中断的休眠
-wait_event(wq, condition);
-// 如果条件为假，那么线程会进入可被中断的休眠
-wait_event_interruptible(wq, condition);
+// 创建等待队列项 name为名称， tsk 表示属于哪个进程，一般为current（当前进程）
+DECLARE_WAITQUEUE(name, tsk);
 
-// 唤醒队列头所有休眠线程
+// 添加等待队列项 (可不调用)
+void add_wait_queue(wait_queue_head_t *q, wait_queue_t *wait);
+void add_wait_queue_exclusive(wait_queue_head_t *q, wait_queue_t *wait);
+
+// 移除等待队列项
+void remove_wait_queue(wait_queue_head_t *q, wait_queue_t *wait);
+
+
+// 如果条件condition为假，那么线程会进入不可中断的休眠状态
+wait_event(wq, condition); // wq 类型为 wait_queue_head_t 类型
+// 如果条件condition为假，那么线程会进入可被中断的休眠状态
+wait_event_interruptible(wq, condition); // wq 类型为 wait_queue_head_t 类型
+
+// 唤醒 等待队列头中 的所有休眠线程
 wake_up(wait_queue_head_t *wq);
-// 唤醒队列头可中断的休眠线程
+// 唤醒 等待队列头中 的可中断的休眠线程
 wait_up_interruptible(wait_queue_head_t *wq);
 ```
 
@@ -797,6 +808,7 @@ struct file {
 ## IO多路复用
 
 ```c
+#include <linux/poll.h>
 // 应用层调用 select 或者 poll 会调用驱动函数 poll
 unsigned int (*poll) (struct file *, struct poll_table_struct *);
 
@@ -806,23 +818,55 @@ void poll_wait(struct file * filp, wait_queue_head_t * wait_address, poll_table 
 
 驱动程序编写：
 
-1. 驱动函数 poll 中，对可能引起设备文件状态变化的等待队列调用 poll_wait（是个非阻塞函数），将对应的等待队列头添加到 poll_table。
-2. 驱动函数 poll 完成上述事情之后，返回是否能进行非阻塞读写的掩码。
+1. 驱动函数 poll 中，对可能引起设备文件状态变化的等待队列调用 poll_wait（是个非阻塞函数）。
+
+   poll_wait 的作用是 关系设备变化的等待队列头 添加到 poll_table(回调函数poll的第二个参数)。
+
+2. 驱动函数 poll 完成上述事情之后，返回表示状态的掩码(如 POLLIN 等)。
 
 ## 信号驱动IO
 
 信号驱动IO的方式不需要应用程序去观察IO的状态，而是通过SIGIO信号来通知应用程序。
 
+```c
+#include <linux/fs.h>
+
+// struct fasync_struct 内核结构体
+struct fasync_struct {
+	spinlock_t fa_lock;
+	int magic;
+	int fa_fd;
+	struct fasync_struct *fa_next; // 单向链表
+	struct file *fa_file;
+	struct rcu_head	fa_rcu;
+};
+
+/*
+ * 常在字符设备驱动 文件操作回调函数fasync 中调用
+ * 前三个参数可以使用 fasync 的入参，最后一个参数存储在驱动中，后续传递给函数 kill_fasync
+ * 该函数 返回负值表示错误，返回0表示没有变化，返回正数表示添加/删除项目
+ */
+int fasync_helper(int fd, struct file * filp, int on, struct fasync_struct **fapp);
+/*
+ * 当 *fp 非空时，该函数从内核中发送信号给进程
+ * sig 为信号编号如 SIGIO
+ * band 可读的时候设置POLLIN 可写的时候设置POLLOUT
+ */
+void kill_fasync(struct fasync_struct **fp, int sig, int band);
+```
+
+
+
 应用程序编写：
 
 1. 使用 signal 注册信号处理函数。
-2. 设置能够接受这个信号的进程。
-3. 开启信号驱动IO，可以使用fcntl 的F_SETFL命令设置FASYNC标志（会调用驱动fasync函数）。
+2. 设置能够接受这个信号的进程， 使用 fcntl函数 的 F_SETOWN 命令。
+3. 开启信号驱动IO，可以使用 fcntl函数 的F_SETFL命令设置FASYNC标志（会调用驱动fasync函数）。
 
 驱动程序编写：
 
-1. 定义 fasync 函数对应的原型
-2. 在函数中调用 fasync_helper 来操作 fasync_struct 结构体
+1. 注册 fasync 回调函数，并在函数内调用 fasync_helper 来操作 fasync_struct 结构体
+2. 在合适的时机（如写入数据）时，调用 kill_fasync 发送信号给进程
 
 ## 异步IO
 
