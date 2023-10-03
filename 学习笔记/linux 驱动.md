@@ -726,6 +726,21 @@ linux有打印等级的概念，因此内核中printk打印的信息不一定出
 
 数字可以取 0-7，共八个等级，数字越小优先级越高。
 
+八个等级宏定义 位于 include\linux\kern_levels.h
+
+```c
+KERN_EMERG 		/* system is unusable */
+KERN_ALERT 		/* action must be taken immediately */
+KERN_CRIT 		/* critical conditions */
+KERN_ERR 		/* error conditions */
+KERN_WARNING 	/* warning conditions */
+KERN_NOTICE 	/* normal but significant condition */
+KERN_INFO 		/* informational */
+KERN_DEBUG 		/* debug-level messages */
+```
+
+
+
 ### 查看日志与打印等级
 
 可以使用 dmesg命令 或 /proc/kmsg文件 查看日志打印。
