@@ -605,6 +605,78 @@ int misc_deregister(struct miscdevice *misc);
 1. 把全局变量打包起来，做成不同的实例，不同的设备文件使用private_data关联不同的实例。
 2. 驱动代码（file_operation）不必感知设备的差异，其表现差异取决于private_data中的数据。
 
+### 驱动模块传参
+
+驱动侧可使用3个API接受三种参数类型：
+
+```c
+#include <linux/moduleparam.h>
+/* 
+ * 1. 传递基本类型
+ * name 为已经定义的变量标识符
+ * type 为数据类型，如 int，char
+ * pem 为参数权限
+ */
+module_param(name, type, pem);
+/* 
+ * 2. 传递数组
+ * name 为已经定义的变量标识符
+ * type 为数据类型，如 int
+ * nump 用于输出数组元素个数，输入 int型指针
+ * pem 为参数权限
+ */
+module_param_array(name, type, nump, pem);
+/* 
+ * 3. 传递字符串
+ * name 为已经定义的变量标识符
+ * string 为字符串缓冲区指针，如 buffer
+ * len 为字符串缓冲区长度，如 sizeof(buffer)
+ * pem 为参数权限
+ */
+module_param_string(name, string, len, pem);
+/*
+ * 定义参数信息，描述如何传参
+ * _param 为已经定义的变量标识符
+ * desc 为描述信息，输入字符串
+ */
+MODULE_PARM_DESC(_param, desc);
+
+
+#include <linux/stat.h>
+/* 参数读写权限宏定义 */
+// usert 的 读(R)、写(W)、执行(X) 权限定义
+#define S_IRWXU 00700
+#define S_IRUSR 00400
+#define S_IWUSR 00200
+#define S_IXUSR 00100
+// group 的 读(R)、写(W)、执行(X) 权限定义
+#define S_IRWXG 00070
+#define S_IRGRP 00040
+#define S_IWGRP 00020
+#define S_IXGRP 00010
+// other 的 读(R)、写(W)、执行(X) 权限定义
+#define S_IRWXO 00007
+#define S_IROTH 00004
+#define S_IWOTH 00002
+#define S_IXOTH 00001
+// 以上宏定义的组合
+#define S_IRWXUGO	(S_IRWXU|S_IRWXG|S_IRWXO)
+#define S_IALLUGO	(S_ISUID|S_ISGID|S_ISVTX|S_IRWXUGO)
+#define S_IRUGO		(S_IRUSR|S_IRGRP|S_IROTH)
+#define S_IWUGO		(S_IWUSR|S_IWGRP|S_IWOTH)
+#define S_IXUGO		(S_IXUSR|S_IXGRP|S_IXOTH)
+```
+
+安装驱动模块时，传参方式
+
+```shell
+# 假设模块 param.ko 有三个变量勇于接受参数
+# static int a; 
+# static int array[5];
+# static char str[10];
+insmod param.ko a=1 array=1,2,3 str=nihao
+```
+
 
 
 # 运行调试
@@ -793,6 +865,27 @@ dmesg # 显示内核打印信息
 + 方法三
 
   修改文件配置打印等级，如： echo " 7 4 1 7 " > /proc/sys/kernel/printk
+
+### 其他打印函数
+
+```c
+/* 打印内核调用堆栈 和 函数调用关系 */
+void dump_stack(void);
+/* 如果condition为真，打印函数调用关系 */
+WARN(condition, const char *fmt, ...);
+/* 如果condition为真，打印函数调用关系 */
+WARN_ON(condition);
+/* 触发内核oops，输出打印 */
+BUG();
+/* 如果condition为真，触发内核oops，输出打印 */
+BUG_ON(condition);
+/* 系统死机并输出打印 */
+panic(const char *fmt, ...);
+```
+
+
+
+
 
 # 字符设备进阶
 
@@ -1928,7 +2021,7 @@ uboot 在启动 Linux 内核的时候会将 bootargs 的值传递给 Linux内核
 
 aliases 节点的主要功能就是定义别名，定义别名的目的就是为了方便访问节点。
 
-### 设备树属性
+### 设备树常见属性
 
 + compatible
 
