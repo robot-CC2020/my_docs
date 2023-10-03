@@ -655,6 +655,8 @@ ls /sys/bus/xxx/drivers # 查看加载的各种总线(i2c platform..)驱动 文�
 cat /proc/devices # 查看所有系统 已经使用设备号
 cat /proc/(pid)/maps # 查看进程使用的 虚拟地址
 cat /proc/interrupts # 查看注册的中断
+cat /proc/kmsg # 查看内核日志
+cat /proc/sys/kernel/printk # 查看终端打印等级
 ```
 
 
@@ -718,13 +720,64 @@ compatible            linux,phandle
 gpio-controller       name
 ```
 
-## 其他
+## 打印信息
 
-+ cat /proc/interrupts
+linux有打印等级的概念，因此内核中printk打印的信息不一定出现在终端上。
 
-  查看中断信息
+数字可以取 0-7，共八个等级，数字越小优先级越高。
+
+### 查看日志与打印等级
+
+可以使用 dmesg命令 或 /proc/kmsg文件 查看日志打印。
+
+cat /proc/sys/kernel/printk 会显示四个数字表示打印等级，分别表示：
+
+1. 控制台日志等级（仅显示等级小于它的日志）
+2. 默认消息等级（printk 默认的输出优先级）
+3. 最低控制台日志等级
+4. 默认控制台日志等级
+
+四个等级定义位于内核源码 kernel/printk/printk.c
 
 
+
+```shell
+cat /proc/kmsg # 查看内核日志
+cat /proc/sys/kernel/printk # 查看终端打印等级
+
+dmesg # 显示内核打印信息 
+ -C, --clear                 清除内核环形缓冲区(ring butter)
+ -c, --read-clear            读取并清除所有消息
+ -F, --file <文件>           用 文件 代替内核日志缓冲区
+ -H, --human                 易读格式输出
+ -k, --kernel                显示内核消息
+ -l, --level <列表>          限制输出级别
+ -T, --ctime                 显示易读的时间戳(可能不准确！)
+支持的日志级别(优先级)：
+   emerg - 系统无法使用
+   alert - 操作必须立即执行
+    crit - 紧急条件
+     err - 错误条件
+    warn - 警告条件
+  notice - 正常但重要的条件
+    info - 信息
+   debug - 调试级别的消息
+
+```
+
+### 修改日志等级
+
++ 方法一
+
+  通过make menuconfig 图形化配置界面修改 默认日志等级。配置路径为：Kernel hacking -> printk and dmesg options -> Default message log level()
+
++ 方法二
+
+  在内核中调用printk的时候设置消息等级，如： printk(KERN_EMERG "hello\n");
+
++ 方法三
+
+  修改文件配置打印等级，如： echo " 7 4 1 7 " > /proc/sys/kernel/printk
 
 # 字符设备进阶
 
