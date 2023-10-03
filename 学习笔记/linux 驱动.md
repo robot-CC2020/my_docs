@@ -993,6 +993,85 @@ long usecs_to_jiffies(const unsigned int u);
 unsigned long nsecs_to_jiffies(u64 n);
 ```
 
+## lseek 操作
+
+文件的读写都是基于文件当前偏移位置来操作的，APP通过调用 lseek 函数，可以修改读写位置。
+
+ ```c
+ #include <sys/types.h>
+ #include <unistd.h>
+ /*
+  * 对于文件描述符filedes，设置其当前文件偏移，并返回新的偏移值。
+  * 新的位置为基于whence位置偏移offset处，whence 可使用宏：
+  * SEEK_SET：文件开头处
+  * SEEK_CUR：文件当前偏移处
+  * SEEK_END：文件末尾处
+  */
+ off_t lseek(int filedes, off_t offset, int whence);
+ ```
+
+调用 lseek 之后，函数 read write 的操作位置会发生改变，并且 read write 本身也会把 当前文件偏移 往后移。即在驱动中，read write 第四个参数 loff_t * 是个出入参。
+
+在驱动中，对应的file_operations 回调函数为 llseek。
+
+```c
+#include <linux/fs.h>
+
+/*
+ * 对于文件结构体 filp，设置其当前文件偏移(filp->f_pos)，并返回新的偏移值。
+ * 参数 offset 和 whence 透传自 应用层函数 lseek
+ * 文件的当前偏移值 存储于 filp->f_pos
+ * 此函数需要 设置 filp->f_pos 为新的偏移值，并且把新的偏移值返回
+ */
+loff_t llseek(struct file *filp, loff_t offset, int whence);
+```
+
+## ioctl 操作
+
+对于设备文件的操作，比如LED等，除了使用 read write 控制之外，还可以使用 ioctl 控制。一般情况下 read write 是用来读写信息流的。
+
+ioctl 的命令是驱动工程师和应用开发者约定的，linux没有预定义具体的命令，只规定了命令格式。
+
+request 命令为32bits，分为四个部分：
+
+1. 设备类型(8bits)，代表一类设备
+2. 序列号(8bits)，同一设备类型中序列号不重复
+3. 数据读写方向(2bits)，如只读(10)只写(01)读写(11)无数据(00)
+4. 传递数据尺寸类型(14bits)，
+
+```c
+#include <sys/ioctl.h>
+int ioctl(int fd, unsigned long request, ...);
+/* ioctl 命令合成宏 */
+_IO(type, nr);			// 合成没有数据传递的命令
+_IOR(type, nr, size);	// 合成从驱动中读数据的命令
+_IOW(type, nr, size);	// 合成往驱动中写数据的命令
+_IOWR(type, nr, size); 	// 合成先写后读的命令
+
+/*
+ * type 为 8bits，可使用单字符如 'A'
+ * nr 为序列号
+ * size 为C语言类型关键字，如 int, 宏内部会调用sizeof()
+ */
+
+/* ioctl 命令分解宏 */
+_IOC_DIR(nr);			// 获取读写方向字段
+_IOC_TYPE(nr);			// 获设备类型字段
+_IOC_NR(nr);			// 获取
+_IOC_SIZE(nr);			// 获取数据尺寸类型字段
+```
+
+对应驱动代码 file_operations 中的 unlocked_ioctl
+
+```c
+// unlocked_ioctl 回调函数原型
+long unlocked_ioctl(
+    struct file *filp,
+    unsigned int cmd,
+    unsigned long arg
+);
+```
+
 
 
 # 中断框架 
@@ -1103,7 +1182,7 @@ int request_irq(
     						// 如果flags不为共享中断，该参数可以为 NULL
 );
 
-// 释放中断资源 API
+// 释放中断资源 API,删除某个中断处理函数
 void free_irq(
     unsigned int, 		// 软件中断号
     void *				// 必须与request的时候一致！
