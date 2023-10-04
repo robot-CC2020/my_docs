@@ -304,6 +304,43 @@ static void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 }
 ```
 
+## 系统调用
+
+系统调用是操作系统提供给编程人员的接口。因为上层应用不能直接操作硬件，只能通过系统调用来请求操作系统的服务。
+
+系统调用会伴随着系统调用号，系统调用号可以让内核区分请求的服务。
+
+内核代码中 使用宏 __SYSCALL(x, y) 来把 **系统调用号x** 绑定到 **内核函数y**，用户空间代码 一般把系统调用函数syscall封装成其他函数。一般用户空间调用函数 xxx()，对应内核函数 sys_xxx()。
+
+### 自定义系统调用
+
+linux内核提供 宏 来定义系统调用相关内核函数。
+
+```c
+#include <linux/syscalls.h>
+/* 用来定义内核函数的宏，无参数 */
+#define SYSCALL_DEFINE0(sname)					\
+	SYSCALL_METADATA(_##sname, 0);				\
+	asmlinkage long sys_##sname(void)
+/* 用来定义内核函数的宏，最多6个参数 */
+#define SYSCALL_DEFINE1(name, ...) SYSCALL_DEFINEx(1, _##name, __VA_ARGS__)
+#define SYSCALL_DEFINE2(name, ...) SYSCALL_DEFINEx(2, _##name, __VA_ARGS__)
+#define SYSCALL_DEFINE3(name, ...) SYSCALL_DEFINEx(3, _##name, __VA_ARGS__)
+#define SYSCALL_DEFINE4(name, ...) SYSCALL_DEFINEx(4, _##name, __VA_ARGS__)
+#define SYSCALL_DEFINE5(name, ...) SYSCALL_DEFINEx(5, _##name, __VA_ARGS__)
+#define SYSCALL_DEFINE6(name, ...) SYSCALL_DEFINEx(6, _##name, __VA_ARGS__)
+```
+
+创建系统调用步骤：
+
+1. 在源文件中使用相应宏定义，定义并实现内核函数。
+2. 在 include/uapi/asm-generic/unistd.h 定义系统调用号，并与内核函数绑定。
+3. 把代码编译进内核，烧录到开发板。
+
+应用程序使用系统调用步骤：
+
+1. 调用函数 syscall()，第一个参数为系统调用号，其余可变参数由内核函数定义。
+
 
 
 # 驱动基础
@@ -670,7 +707,7 @@ MODULE_PARM_DESC(_param, desc);
 安装驱动模块时，传参方式
 
 ```shell
-# 假设模块 param.ko 有三个变量勇于接受参数
+# 假设模块 param.ko 有三个变量用于接受参数
 # static int a; 
 # static int array[5];
 # static char str[10];
@@ -880,12 +917,8 @@ BUG();
 /* 如果condition为真，触发内核oops，输出打印 */
 BUG_ON(condition);
 /* 系统死机并输出打印 */
-panic(const char *fmt, ...);
+panic(const char *fmt, ...)
 ```
-
-
-
-
 
 # 字符设备进阶
 
