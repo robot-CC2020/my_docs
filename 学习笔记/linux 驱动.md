@@ -1553,8 +1553,9 @@ void tasklet_kill(struct tasklet_struct *t);
     + 在中断上半部分中，把 tasklet 加入调度 **tasklet_schedule**()
   + 可动态初始化 tasklet，默认为使能状态。 **tasklet_init**()
 + 反初始化步骤：
-  + 释放中断 **free_irq**()
   + 把 tasklet 移出调度 **tasklet_kill**()
+  + 释放中断 **free_irq**()
+
 
 注意：
 
@@ -1626,61 +1627,223 @@ preempt_count 的作用是，在 多次中断发生时，中断下半部分不�
 
 工作队列是 实现中断下半部分的机制之一，与 tasklet 的区别是工作队列 处理过程中**可以进行休眠**，可以执行比tasklet 更耗时的工作。
 
-工作队列分为共享工作队列和自定义工作队列，如果共享工作队列不满足要求，可以使用自定义工作队列。
+工作队列分为共享工作队列和自定义工作队列，优先使用共享工作队列，如果共享工作队列不满足要求，可以使用自定义工作队列。
 
-共享工作队列：
-
-+ 内核已经创建共享工作队列，该队列内有各种不同的驱动的工作
-+ 驱动只需要往 linux全局队列 添加自定义的工作
-
-自定义工作队列：
-
-+ 需要自己创建工作队列
-+ 队列的维护需要消耗资源，故不优先使用。
+#### 共享工作队列
 
 ```c
 #include <linux/workqueue.h>
+// 工作队列回调原型
+typedef void (*work_func_t)(struct work_struct *work);
+
 // 工作队列中的工作
 struct work_struct {
 	atomic_long_t data;
 	struct list_head entry;	// 
 	work_func_t func;		// 回调函数，具体的工作
 };
-// 工作队列回调原型
-typedef void (*work_func_t)(struct work_struct *work);
 
-// API
-// 把一个工作添加到 linux 的 共享工作队列 中进行调度
+
+// 定义并初始化工作对象的宏
+// n 为工作变量名， f 为工作函数
+DECLARE_WORK(n, f);
+
+// 初始化工作对象的宏
+// _work为工作对象的指针，_func为工作函数
+INIT_WORK(_work, _func);
+
+// 把 work所含的工作 添加到 共享工作队列 中进行调度
 bool schedule_work(struct work_struct *work);
-// 取消一个已经调度的工作队列，如果正在执行，会等待执行完成
-bool cancel_work_sync(struct work_struct *work);
 
-// 创建工作队列，输入自定义的名字，返回工作队列指针 宏定义
-struct workqueue_struct *create_workqueue(const char *name);
-// 把一个工作添加到 特定的工作队列 中进行调度
-bool queue_work(struct workqueue_struct *wq, struct work_struct *work);
+// 取消一个已经调度的工作，如果正在执行，会等待执行完成
+bool cancel_work_sync(struct work_struct *work);
 ```
 
+共享工作队列使用：
 
++ 初始化步骤：
+  + 创建并初始化 工作 **DECLARE_WORK()** 或者 **INIT_WORK()**
+  + 取得中断号 并 注册中断服务函数 **request_irq**()
+    + 在中断服务函数中，把 工作 加入工作队列调度 **schedule_work()**
++ 反初始化步骤：
+  + 把 工作 移出调度 **cancel_work_sync()**
+  + 释放中断 **free_irq**()
+
+
+
+#### 自定义工作队列
+
+```c
+#include <linux/workqueue.h>
+
+// 创建工作队列，作用于每个CPU，返回工作队列指针，失败返回NULL
+struct workqueue_struct *create_workqueue(const char *name);
+
+// 创建工作队列，作用于单个CPU，返回工作队列指针，失败返回NULL
+struct workqueue_struct *create_singlethread_workqueue(const char *name);
+
+// 把一个工作添加到 特定的工作队列 中进行调度
+bool queue_work(struct workqueue_struct *wq, struct work_struct *work);
+
+// 把一个工作添加到 特定的工作队列 中进行调度，并指定CPU
+bool queue_work_on(int cpu, struct workqueue_struct *wq, struct work_struct *work);
+
+// 刷新工作队列,告诉内核尽快处理
+void flush_workqueue(struct workqueue_struct *wq);
+
+// 删除自定义工作队列
+void destroy_workqueue(struct workqueue_struct *wq);
+```
 
 自定义工作队列使用：
 
-+ 模块初始化 **modue_init**()
++ 初始化步骤：
+  + 创建自定义工作队列 **create_workqueue()**
+  + 创建并初始化 工作 **DECLARE_WORK()** 或者 **INIT_WORK()**
   + 取得中断号 并 注册中断服务函数 **request_irq**()
-    + 在中断服务函数中，把 tasklet 加入调度 **tasklet_schedule**()
-  + 可动态初始化 tasklet，默认为使能状态。 **tasklet_init**()
-+ 模块退出 **module_exit**()
+    + 在中断服务函数中，把 工作 加入工作队列调度 **schedule_work()**
++ 反初始化步骤：
+  + 把 工作 移出调度 **cancel_work_sync()**
+  + 刷新工作队列 **flush_workqueue()**
+  + 删除工作队列 **destroy_workqueue()**
   + 释放中断 **free_irq**()
-  + 可以使能tasklet，防止下次不能成功运行 **tasklet_enable**()
-  + 把 tasklet 移出调度 **tasklet_kill**()
 
 使用命令  ps -aux 查看，带 kworker 线程是内核线程，它们要去“工作队列”(work queue)上取出一个一个“工作”(work)，来执行它里面的函数。
 
-#### 延时工作队列
+#### 延时工作
+
+```c
+#include <linux/workqueue.h>
+// 延时工作，封装了内核定时器 和 工作对象
+struct delayed_work {
+	struct work_struct work;	// 工作对象
+	struct timer_list timer; 	// 内核定时器
+
+	/* target workqueue and CPU ->timer uses to queue ->work */
+	struct workqueue_struct *wq; 
+	int cpu;
+};
+
+// 定义并初始化延时工作对象
+// n 为对象标识符， f 为工作回调函数
+DECLARE_DELAYED_WORK(n, f);
+
+// 初始化延时工作对象
+// _work 为工作对象指针， _func 为工作回调函数
+INIT_DELAYED_WORK(_work, _func);		 // 初始化全局变量
+INIT_DELAYED_WORK_ONSTACK(_work, _func); // 初始化栈上变量
+
+// 延时后把 dwork 加入共享工作队列调度
+bool schedule_delayed_work(
+    struct delayed_work *dwork,
+    unsigned long delay
+);
+
+// 延时后把 dwork 加入共享工作队列调度，绑定CPU
+bool schedule_delayed_work_on(
+    int cpu,
+    struct delayed_work *dwork,
+    unsigned long delay
+);
+
+// 延时后把 工作work 加入工作队列wq调度，绑定CPU
+// 如果work已经在队列内则返回false，否则返回true
+bool queue_delayed_work_on(
+    int cpu,						// 目标CPU
+    struct workqueue_struct *wq,	// 加入的工作队列
+    struct delayed_work *work,		// 工作
+    unsigned long delay				// 延迟时间 内核节拍数
+);
+```
 
 #### 工作队列传参
 
+```c
+#include <linux/kernel.h>
+#include <linux/workqueue.h>
+/*
+ * 根据结构体成员地址获取结构体首地址
+ * ptr 为结构体成员地址
+ * type 为结构体类型
+ * member 为结构体成员名
+ * 返回 type 类型的结构体地址
+ */
+#define container_of(ptr, type, member) ({			\
+	const typeof( ((type *)0)->member ) *__mptr = (ptr);	\
+	(type *)( (char *)__mptr - offsetof(type,member) );})
+
+
+typedef void (*work_func_t)(struct work_struct *work);
+// 驱动中 自定义的结构体
+struct work_data {
+    struct work_struct work; // 工作对象
+    /* 以下的成员都可作为参数 */
+    int arg1;
+    char arg2[10];
+    ...
+}
+// 在工作中获取参数 示例函数
+void test_work(struct work_struct *work)
+{
+    struct work_data *pdata;
+    pdata = container_of(work, struct work_data, work);
+    // 根据 struct work_data结构体地址 获取参数
+    pdata->arg1;
+    pdata->arg2;
+    ...
+}
+```
+
+回调函数 work_func_t 的形参work 其实是驱动中定义的 工作对象地址，于是可以通过使用 container_of 函数来帮助传参。
+
+参数传递方式：
+
+1. 把 工作结构体(struct work_struct) 定义在另一个结构体(struct work_data)内部
+2. 初始化结构体(struct work_data)内参数成员，以及工作结构体
+3. 在工作回调函数内部，使用 container_of(work, work_data, work) 获取结构体地址。
+
+
+
 #### 并发管理工作队列
+
+```c
+#include <linux/workqueue.h>
+
+/*
+ * 工作队列 的 标志位 及其他参数 内容定义
+ * 更多详细信息见： Documentation/workqueue.txt.
+ */
+enum {
+	WQ_UNBOUND		= 1 << 1, /* 工作队列由 不与CPU绑定的线程 处理 */
+	WQ_FREEZABLE		= 1 << 2, /* 与电源管理相关 */
+	WQ_MEM_RECLAIM		= 1 << 3, /* 可防止内存不够导致线程创建失败 */
+	WQ_HIGHPRI		= 1 << 4, /* 工作队列由高优先级线程处理 */
+	WQ_CPU_INTENSIVE	= 1 << 5, /* 计算密集型任务可使用此标志 */
+	WQ_SYSFS		= 1 << 6, /* sysfs 可见,见 wq_sysfs_register */
+
+	/*
+	 * Per-cpu工作队列通常是首选，因为由于缓存局部性，它们往往表现出更好的性能。Per-cpu工作队列排除了调度器选择执行工作线程的CPU，这有一个增加功耗的副作用。
+	 * 调度程序认为CPU空闲，如果它没有任何任务要执行，并试图保持空闲的核心空闲，以节省电力;但是，例如，从空闲CPU上的中断处理程序调度的每个CPU的工作项将迫使调度器在打破空闲的CPU上执行该工作项，这反过来可能导致更多的调度选择，这将不利于降低功耗。
+	 * 标记为WQ_POWER_EFFICIENT的工作队列默认是按cpu计算的，但如果工作队列被取消绑定。指定Power_efficient内核参数。Per-cpu工作队列被确定为对功耗有重大贡献的工作队列被识别并标记为此标志，启用power_efficient模式可以显著节省功耗，但代价是性能上的小损耗。
+	 */
+	WQ_POWER_EFFICIENT	= 1 << 7,
+
+	__WQ_DRAINING		= 1 << 16, /* internal: workqueue is draining */
+	__WQ_ORDERED		= 1 << 17, /* internal: workqueue is ordered */
+
+	WQ_MAX_ACTIVE		= 512,	  /* 线程池最大线程数量限制 */
+	WQ_MAX_UNBOUND_PER_CPU	= 4,	  /* 不绑定的线程数量限制 */
+	WQ_DFL_ACTIVE		= WQ_MAX_ACTIVE / 2, /* 默认线程池数量 */
+};
+
+// 创建工作队列 宏定义，返回分配的指针
+struct workqueue_struct *alloc_workqueue(
+    const char *fmt,		// 工作队列的名称
+    unsigned int flags,		// 属性标志位
+    int max_active,			// 线程池最大线程数量
+    ...
+);
+```
 
 根据工作队列的flag参数，其任务可以分配给 CPU上运行的不同线程来执行：
 
@@ -1722,16 +1885,24 @@ int request_threaded_irq(
 
 + tasklet
   + 处理函数原型：void (*func)(unsigned long data);
-  + 是否可睡眠：不可睡眠
+  + 调度方式：每个CPU维护自己的tasklet链表。每一个tasklet可以加到所有CPU的链表中，但同一个tasklet不会被多个CPU同时执行。
+  + 优点：占用资源少
+  + 缺点：不可睡眠
 + 软中断
-  + 处理函数原型：
-  + 是否可睡眠：不可睡眠
+  + 处理函数原型：void (*action)(struct softirq_action *irq);
+  + 调度方式：触发软中断后，任选一个CPU执行对应的中断处理函数。
+  + 优点：高频性能
+  + 缺点：不可睡眠
 + 工作队列
-  + 处理函数原型：
-  + 是否可睡眠：可以睡眠
-+ 线程化
+  + 处理函数原型：void (*work_func_t)(struct work_struct *work);
+  + 调度方式：每个工作队列对应一个内核处理线程，负责调度执行队列内的多个任务。
+  + 优点：可睡眠、可任意传参、
+  + 缺点：
++ 中断线程化
   + 处理函数原型：irqreturn_t (*irq_handler_t)(int irq, void *dev);
-  + 是否可睡眠：可以睡眠
+  + 调度方式：每个任务都有专门的线程处理，多个线程均匀使用多个CPU。
+  + 优点：可睡眠、可任意传参、合理分配CPU负载
+  + 缺点：占用资源多
 
 
 
