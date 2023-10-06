@@ -1896,7 +1896,7 @@ int request_threaded_irq(
 + 工作队列
   + 处理函数原型：void (*work_func_t)(struct work_struct *work);
   + 调度方式：每个工作队列对应一个内核处理线程，负责调度执行队列内的多个任务。
-  + 优点：可睡眠、可任意传参、
+  + 优点：可睡眠、可任意传参、可设置线程属性（是否绑定CPU、是否高优先级等）
   + 缺点：
 + 中断线程化
   + 处理函数原型：irqreturn_t (*irq_handler_t)(int irq, void *dev);
@@ -2672,9 +2672,9 @@ void gpiod_put(struct gpio_desc *desc);
 
 input 子系统的设备属于字符设备的一种，其主设备号固定为13。
 
-使用input子系统之后就不用在 /class 和 /dev 创建文件，也不用注册file_operation，这些由input子系统完成，创建的设备文件在 /dev/input 目录下。
++ 驱动层 使用input子系统之后就不用在 /class 和 /dev 创建文件，也不用注册file_operation，这些由input子系统完成，创建的设备文件在 /dev/input 目录下。
 
-应用层 读取设备文件的得到数据 为 二进制数据，用于表示事件， 可以用 linux/input.h 的结构体 struct input_event 来解析读取得到的二进制数据。
++ 应用层 读取设备文件的得到数据 为 二进制数据，用于表示事件， 可以用 linux/input.h 的结构体 struct input_event 来解析读取得到的二进制数据。
 
 ## input 相关内核源码
 
@@ -2796,6 +2796,269 @@ void input_unregister_device(struct input_dev *);
 // 释放 input 设备 结构体
 void input_free_device(struct input_dev *dev);
 ```
+
+# I2C总线框架
+
+linux中，I2C设备的驱动分为两层：
+
++ I2C适配器驱动，也叫I2C控制器驱动，由原厂BSP工程师编写。
++ I2C设备驱动，如使用I2C接口的MPU6050等，由驱动工程师编写。
+
+
+
+## I2C适配器驱动
+
+```c
+#include <linux/i2c.h>
+
+/* 部分表示 I2C 功能的标志位 */
+#define I2C_FUNC_I2C			0x00000001
+#define I2C_FUNC_10BIT_ADDR		0x00000002
+#define I2C_FUNC_PROTOCOL_MANGLING	0x00000004 /* I2C_M_IGNORE_NAK etc. */
+#define I2C_FUNC_SMBUS_PEC		0x00000008
+#define I2C_FUNC_NOSTART		0x00000010 /* I2C_M_NOSTART */
+
+/*
+ * i2c_algorithm 是一类硬件解决方案的接口，这些解决方案可以使用相同的总线算法来解决,例如bit-banging 或 PCF8584，这是最常见的两个。
+ * @master_xfer:与i2c适配器进行一组i2c事务通信，通信内容由num个元素的 msgs 数组表示。
+ * @smbus_xfer:向给定的I2C适配器发出smbus事务。如果不存在此回调，那么总线层将尝试将SMBus调用转换为I2C传输。
+ * @function:函数返回值中用标志位表示支持的功能。
+ * @reg_slave:将给定的客户端注册到该适配器的I2C从模式
+ * @unreg_slave:从这个适配器的I2C从模式注销给定的客户端
+ */
+struct i2c_algorithm {
+    /*
+     * 如果适配器算法不能进行i2c级访问，则将master_xfer设置为NULL。如果适配器算法可以进行SMBus访问，则设置smbus_xfer。如果设置为NULL，则使用普通I2C消息模拟SMBus协议，master_xfer 应该返回成功处理的消息数，如果出错则返回负值。
+     * 错误码可参考内核文档 Documentation/i2c/fault-codes。
+	*/
+	int (*master_xfer)(struct i2c_adapter *adap, struct i2c_msg *msgs, int num);
+	int (*smbus_xfer) (struct i2c_adapter *adap,
+                       u16 addr,
+                       unsigned short flags,
+                       char read_write,
+                       u8 command,
+                       int size,
+                       union i2c_smbus_data *data);
+	/* 决定适配器支持的功能 */
+	u32 (*functionality) (struct i2c_adapter *);
+};
+
+/*
+ * 表示一个物理I2C总线
+ */
+struct i2c_adapter {
+	struct module *owner;
+	unsigned int class;		  /* classes to allow probing for */
+	const struct i2c_algorithm *algo; /* 操控硬件的读写算法 */
+	void *algo_data;
+
+	/* data fields that are valid for all devices	*/
+	struct rt_mutex bus_lock;
+
+	int timeout;			/* in jiffies */
+	int retries;
+	struct device dev;		/* the adapter device */
+
+	int nr;
+	char name[48];
+	struct completion dev_released;
+
+	struct mutex userspace_clients_lock;
+	struct list_head userspace_clients;
+
+	struct i2c_bus_recovery_info *bus_recovery_info;
+	const struct i2c_adapter_quirks *quirks;
+};
+
+
+/*
+ * 注册i2c适配器，使用指定的的总线号
+ * @adap:待注册的适配器 (其中成员变量 adap->nr 要已经初始化)
+ * 当一个I2C适配器的总线号很重要时，使用这个接口声明它。例如：SOC的I2C适配器，或其他内置到系统主板的适配器。
+ * 如果请求的总线号(adap->nr)被设置为-1，那么这个函数的行为将与i2c_add_adapter相同，并将动态分配一个总线号。
+ * 如果没有预先为这个总线声明设备，那么一定要在动态分配它之前注册适配器。否则，所需的总线ID可能不可用。
+ * 成功时返回0值，失败时返回errno值的负数。
+ */
+int i2c_add_numbered_adapter(struct i2c_adapter *adap);
+
+/*
+ * 注册i2c适配器，使用动态分配的总线号
+ * 当一个I2C适配器的总线号不重要时，使用这个接口声明它。例如:通过USB链接或PCI插件卡动态添加的I2C适配器。
+ * 成功时返回0值，新的总线号被分配并存储在adap->nr中。失败时返回errno值的负数。
+ */
+int i2c_add_adapter(struct i2c_adapter *adapter);
+
+/*
+ * 注销i2c适配器
+ */
+void i2c_del_adapter(struct i2c_adapter *adap);
+```
+
+
+
+## I2C设备驱动
+
+```c
+// I2C设备的 驱动程序
+struct i2c_driver {
+	unsigned int class;
+
+    /* 通知驱动有新的总线出现， 此函数已经被弃用，将会被删除 */
+	int (*attach_adapter)(struct i2c_adapter *) __deprecated;
+
+	/* 标准驱动模型接口，驱动匹配时调用probe，移除时调用remove */
+	int (*probe)(struct i2c_client *, const struct i2c_device_id *);
+	int (*remove)(struct i2c_client *);
+
+	/* 设备关机  */
+	void (*shutdown)(struct i2c_client *);
+
+	/* 警报回调，例如SMBus警报协议 */
+	void (*alert)(struct i2c_client *, unsigned int data);
+
+	/* 类似 ioctl，用来执行一些设备特定的功能 */
+	int (*command)(struct i2c_client *client, unsigned int cmd, void *arg);
+	
+    /* 设备驱动模型的驱动部分，内含 owner name of_id_table 等 */
+	struct device_driver driver;
+    /* 驱动程序支持的I2C设备列表 */
+	const struct i2c_device_id *id_table;
+
+	/* 设备检测回调，用于自动创建设备 */
+	int (*detect)(struct i2c_client *, struct i2c_board_info *);
+	const unsigned short *address_list;
+	struct list_head clients;
+};
+// 根据成员 struct device_driver driver的地址，获取 struct i2c_driver 的首地址
+#define to_i2c_driver(d) container_of(d, struct i2c_driver, driver)
+
+/*
+ * 为了自动检测设备，需要同时定义 @detect 和 @address_list。 @class 也应该设置。
+ * 在检测成功时， @detect 函数必须至少填充 i2c_board_info结构 的name字段，也可能填充flags字段。
+ * 如果缺少 @detect函数，驱动程序仍然可以让 已经被枚举的设备 正常工作。
+ */    
+
+/*
+* struct i2c_client -表示I2C从机设备
+* @flags: 
+* 	I2C_CLIENT_TEN 表示设备使用10位芯片地址;
+* 	I2C_CLIENT_PEC 表示使用SMBus报文错误检测;
+* @addr:连接到I2C总线上使用的地址。
+* @name:表示设备的类型，通常是一个通用的芯片名称。
+* @adapter:管理承载I2C设备的总线段
+* @dev:从机的驱动模型设备节点。
+* @irq:表示本设备产生的IRQ(如果有)
+* @detected: i2c_driver的成员。客户端列表或i2c-core的userspace_devices列表
+* @slave_cb:当适配器使用I2C从机模式时的回调。适配器调用它将从属事件传递给从属驱动程序。
+*/
+struct i2c_client {
+	unsigned short flags;		/* div., see below */
+	unsigned short addr;		/* 芯片地址: 7位	*/
+	char name[I2C_NAME_SIZE];
+	struct i2c_adapter *adapter; /* 适配器 */
+	struct device dev;		/* device 结构体*/
+	int irq;				/* 表示本设备产生的IRQ	*/
+	struct list_head detected;
+#if IS_ENABLED(CONFIG_I2C_SLAVE)
+	i2c_slave_cb_t slave_cb;	/* callback for slave mode	*/
+#endif
+};
+
+/*
+ * 封装调用 i2c_register_driver
+ */
+// 注册 I2C总线的 驱动程序 到内核
+#define i2c_add_driver(driver) \
+	i2c_register_driver(THIS_MODULE, driver)
+
+// 注册 I2C总线的 驱动程序 到内核
+int i2c_register_driver(struct module *owner, struct i2c_driver *driver);
+
+// 从内核中注销 I2C总线的 驱动程序
+void i2c_del_driver(struct i2c_driver *driver);
+
+/* I2C消息的 flags */
+#define I2C_M_TEN			0x0010	/* 10比特芯片地址 */
+#define I2C_M_RD			0x0001	/* 从从机芯片读数据 */
+#define I2C_M_STOP			0x8000	/* if I2C_FUNC_PROTOCOL_MANGLING */
+#define I2C_M_NOSTART		0x4000	/* if I2C_FUNC_NOSTART */
+#define I2C_M_REV_DIR_ADDR	0x2000	/* if I2C_FUNC_PROTOCOL_MANGLING */
+#define I2C_M_IGNORE_NAK	0x1000	/* if I2C_FUNC_PROTOCOL_MANGLING */
+#define I2C_M_NO_RD_ACK		0x0800	/* if I2C_FUNC_PROTOCOL_MANGLING */
+#define I2C_M_RECV_LEN		0x0400	/* length will be first received byte */
+
+// 表示I2C总线上的一个传输操作，可能为发送或者接收
+struct i2c_msg {
+	__u16 addr;		/* 从机地址	*/
+	__u16 flags;	/* 标志位，表示读写操作或者属性 */
+	__u16 len;		/* 数据buf长度 */
+	__u8 *buf;		/* 数据buf指针	*/
+};
+
+// I2C 读写接口，进行一组I2C事务
+int i2c_transfer(
+    struct i2c_adapter *adap,	// I2C适配器，内部含硬件操作方法
+    struct i2c_msg *msgs, 		// msg数组，每个msg元素代表一趟消息 
+    int num						// msg数组元素个数
+);
+```
+
+驱动代码中不创建 struct i2c_client 结构体，该结构体由系统解析设备树时创建。 
+
+结构体 i2c_driver 与 platform_driver 类似，也有设备树compatible属性和 probe回调 等函数，只不过一个是虚拟的平台总线，一个是真实的 I2C总线。
+
+### 不使用设备树
+
+使用结构体 i2c_board_info 描述I2C设备信息。
+
+### 使用设备树
+
+I2C设备节点常用属性：
+
++ compatible：用于与 i2c_driver 匹配的字符串。
++ reg：一般为器件7位地址，查看相应器件手册获得，注意同一总线上地址不可冲突
+
+```css
+/* imx6ull-alientek-emmc.dts */
+&i2c1 {
+	clock-frequency = <100000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_i2c1>;
+	status = "okay";
+
+	mag3110@0e {
+		compatible = "fsl,mag3110";
+		reg = <0x0e>;
+		position = <2>;
+	};
+
+	fxls8471@1e {
+		compatible = "fsl,fxls8471";
+		reg = <0x1e>;
+		position = <0>;
+		interrupt-parent = <&gpio5>;
+		interrupts = <0 8>;
+	};
+};
+```
+
+## 驱动编写
+
+## NXP原厂I2C驱动分析
+
+根据设备树compatible属性查找，可找到 "fsl,imx21-i2c" 相关的属性，位于 "drivers\i2c\busses\i2c-imx.c"。
+
+驱动中读取设备树属性，其来源文件除了 imx6ull.dtsi 还有 imx6ull-alientek-emmc.dts。
+
+NXP自定义结构体 struct imx_i2c_struct 封装了 内核结构体 struct i2c_adapter，并且使用了DMA 功能。
+
+NXP驱动代码通过 struct i2c_algorithm 注册了两个回调函数
+
++ master_xfer：I2C读写操作最终通过此函数操作硬件
+
++ functionality：返回32位整数，其标志位表示支持的功能
+
+
 
 # LCD屏幕驱动
 
