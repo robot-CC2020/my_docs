@@ -83,6 +83,43 @@ imxdownload u-boot.bin /dev/sdb
 
 /dev/sdb 为 sd卡插入虚拟机后出现的设备文件
 
+# SoC 启动流程
+
+## RK3568 启动流程
+
+### 芯片如何加载bootloader
+
++ 芯片上电，CPU启动地址为 0xFFFF0000，执行映射到该地址的程序
+  + 如果为默认情况，执行SoC出厂烧录的片上 BootRom
+    + 初始化硬件，依次检查 SPI Nor Flash、SPI Nand Flash、external Nand Flash、external eMMC Flash、external SDMMC card，是否有启动程序
+    + 如果中间检查到 存在启动程序
+      + 加载 SDRAM初始化程序 到 SYSTEM_SRAM
+      + 运行启动程序以初始化DDR
+      + 传输启动程序到DDR
+      + 继续运行启动程序
+    + 如果一直没有检查到启动程序
+      + 初始化USB
+      + 下载DDR初始化程序，并以此初始化DDR
+      + 下载启动代码到DDR，运行启动代码
+  + 如果不是默认情况，执行 PMU_SRAM 或者 SYSTEM_SRAM 的程序
+
+### 芯片启动配置
+
+芯片上电时的地址映射关系，由 PMU_SGRF_SOC_CON1[12:11] 的两位比特控制。
+
+![image-20231008003446560](./uboot-linux移植.assets/image-20231008003446560.png)
+
++ BootRom：SoC厂商烧录的代码，默认启动时执行
++ PMU_SRAM：SoC芯片内部集成的 RAM
+
++ SYSTEM_SRAM：SoC芯片内部集成的 RAM
+
+
+
+## IMX6ULL 启动流程
+
+
+
 
 
 # uboot 操作
